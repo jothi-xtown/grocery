@@ -19,6 +19,7 @@ import { unitRoutes } from "./src/modules/unit/index.js"
 import { categoryRoutes } from "./src/modules/category/index.js"
 import { supplierRoutes } from "./src/modules/supplier/index.js"
 import { addressRoutes } from "./src/modules/address/index.js"
+import { stockRoutes } from "./src/modules/stock/index.js"
 const app = express();
 
 dotenv.config();
@@ -75,7 +76,7 @@ protectedRoutes.use('/unit', unitRoutes);
 protectedRoutes.use('/category', categoryRoutes);
 protectedRoutes.use('/supplier', supplierRoutes);
 protectedRoutes.use('/address', addressRoutes);
-
+protectedRoutes.use('/stock', stockRoutes);
 
 
 // Now apply auth + mount once

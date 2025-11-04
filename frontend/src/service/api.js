@@ -2,7 +2,7 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "https://va-erp-backend.onrender.com",
+  baseURL: "http://192.168.1.7:5001",
   headers: {
     'Content-Type': 'application/json',
   },
