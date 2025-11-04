@@ -21,6 +21,7 @@ import { supplierRoutes } from "./src/modules/supplier/index.js"
 import { addressRoutes } from "./src/modules/address/index.js"
 import { stockRoutes } from "./src/modules/stock/index.js"
 import { productRoutes } from "./src/modules/product/index.js"
+import { billRoutes } from "./src/modules/bill/index.js"
 
 const app = express();
 
@@ -80,7 +81,7 @@ protectedRoutes.use('/suppliers', supplierRoutes);
 protectedRoutes.use('/address', addressRoutes);
 protectedRoutes.use('/stock', stockRoutes);
 protectedRoutes.use('/products', productRoutes);
-
+protectedRoutes.use('/bill', billRoutes);
 
 // Now apply auth + mount once
 app.use("/api", authenticate, protectedRoutes);
