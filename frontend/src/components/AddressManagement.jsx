@@ -293,12 +293,12 @@ const AddressManagement = () => {
 
                   rules={[
                     { required: true, message: "Phone number is required" },
-                    { pattern: /^\d{10, 11}$/, message: "Phone number must be exactly 10 digits" }
+                    { pattern: /^\d{10}$/, message: "Phone number must be exactly 10 digits" }
                   ]}
                 >
                   <Input
                     placeholder="Enter 10-digit phone number"
-                    maxLength={11}
+                    maxLength={10}
                     onKeyPress={(e) => {
                       if (!/[0-9]/.test(e.key)) {
                         e.preventDefault(); 
