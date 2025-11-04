@@ -30,15 +30,12 @@ const Product = sequelize.define(
       allowNull: true,
     },
 
+    hasGST: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     gstPercent: {
-      type: DataTypes.FLOAT,
-      allowNull: true,
-    },
-    cgstPercent: {
-      type: DataTypes.FLOAT,
-      allowNull: true,
-    },
-    sgstPercent: {
       type: DataTypes.FLOAT,
       allowNull: true,
     },
@@ -47,19 +44,19 @@ const Product = sequelize.define(
       allowNull: true,
     },
 
-    purchasePriceWithGST: {
+    piecePrice: {
       type: DataTypes.FLOAT,
       allowNull: true,
     },
-    purchasePriceWithoutGST: {
+    pieceSalesPrice: {
       type: DataTypes.FLOAT,
       allowNull: true,
     },
-    salesPriceWithGST: {
+    purchasePrice: {
       type: DataTypes.FLOAT,
       allowNull: true,
     },
-    salesPriceWithoutGST: {
+    salesPrice: {
       type: DataTypes.FLOAT,
       allowNull: true,
     },
@@ -74,17 +71,12 @@ const Product = sequelize.define(
       defaultValue: "Yes",
     },
 
-    unitConversion: {
-      type: DataTypes.FLOAT,
-      allowNull: true,
-    },
-
     lowQtyIndication: {
       type: DataTypes.FLOAT,
       allowNull: true,
     },
 
-    qtyInNo: {
+    unitQuantity: {
       type: DataTypes.FLOAT,
       allowNull: true,
     },

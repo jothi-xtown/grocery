@@ -1,0 +1,712 @@
+import { useState, useEffect } from "react";
+import {
+  Button,
+  Input,
+  InputNumber,
+  Table,
+  Tag,
+  Space,
+  Form,
+  Select,
+  Card,
+  Popconfirm,
+  message,
+} from "antd";
+import {
+  PlusOutlined,
+  FilePdfOutlined,
+  EditOutlined,
+  DeleteOutlined,
+} from "@ant-design/icons";
+import api from "../service/api";
+import { canEdit, canDelete, canCreate } from "../service/auth";
+
+const ProductManagement = () => {
+  const [form] = Form.useForm();
+  const [products, setProducts] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [units, setUnits] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 10,
+    total: 0,
+    showSizeChanger: true,
+    showQuickJumper: true,
+  });
+
+  const [brandFilter, setBrandFilter] = useState(null);
+  const [categoryFilter, setCategoryFilter] = useState(null);
+  const [availabilityFilter, setAvailabilityFilter] = useState(null);
+  const [hasGST, setHasGST] = useState(false);
+
+  // Fetch brands, categories, units for dropdowns
+  useEffect(() => {
+    const fetchDropdowns = async () => {
+      try {
+        const [brandsRes, categoriesRes, unitsRes] = await Promise.all([
+          api.get("/api/brands?page=1&limit=1000"),
+          api.get("/api/categories?page=1&limit=1000"),
+          api.get("/api/units?page=1&limit=1000"),
+        ]);
+        setBrands(brandsRes.data.data || []);
+        setCategories(categoriesRes.data.data || []);
+        setUnits(unitsRes.data.data || []);
+      } catch (err) {
+        console.error("Error fetching dropdowns", err);
+      }
+    };
+    fetchDropdowns();
+  }, []);
+
+  // Fetch products
+  const fetchProducts = async (page = 1, limit = 10) => {
+    setLoading(true);
+    try {
+      const res = await api.get(`/api/products?page=${page}&limit=${limit}`);
+      setProducts(res.data.data || []);
+
+      // Update pagination state
+      setPagination(prev => ({
+        ...prev,
+        current: res.data.page || page,
+        total: res.data.total || 0,
+        pageSize: res.data.limit || limit,
+      }));
+    } catch (err) {
+      console.error("Error fetching products", err);
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle pagination change
+  const handleTableChange = (pagination) => {
+    fetchProducts(pagination.current, pagination.pageSize);
+  };
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  // Handle form submit (create or update)
+  const handleSubmit = async (values) => {
+    try {
+      const currentUser = localStorage.getItem("username") || "Unknown";
+      const gstType = values.gstType || "no";
+      const hasGSTValue = gstType === "with";
+      
+      const payload = {
+        productName: values.productName?.trim(),
+        hsn_sac_code: values.hsn_sac_code?.trim() || null,
+        hasGST: hasGSTValue,
+        gstPercent: hasGSTValue ? (values.gstPercent || null) : null,
+        discountPercent: values.discountPercent || null,
+        piecePrice: values.piecePrice || null,
+        pieceSalesPrice: values.pieceSalesPrice || null,
+        purchasePrice: values.purchasePrice || null,
+        salesPrice: values.salesPrice || null,
+        description: values.description?.trim() || null,
+        availability: values.availability || "Yes",
+        lowQtyIndication: values.lowQtyIndication || null,
+        unitQuantity: values.unitQuantity || null,
+        brandId: values.brandId || null,
+        categoryId: values.categoryId || null,
+        unitId: values.unitId || null,
+      };
+
+      if (editingId) {
+        payload.updatedBy = currentUser;
+        await api.put(`/api/products/${editingId}`, payload);
+        message.success("Product updated successfully");
+      } else {
+        payload.createdBy = currentUser;
+        const res = await api.post("/api/products", payload);
+        setProducts([res.data.data, ...products]);
+        message.success("Product created successfully");
+      }
+
+      setShowForm(false);
+      setEditingId(null);
+      setHasGST(false);
+      form.resetFields();
+      fetchProducts();
+    } catch (err) {
+      console.error("Error saving product", err);
+      message.error("Error saving product");
+    }
+  };
+
+  // Handle edit
+  const handleEdit = (record) => {
+    setEditingId(record.id);
+    setShowForm(true);
+    const hasGSTValue = record.hasGST === true || record.hasGST === "true";
+    setHasGST(hasGSTValue);
+    form.setFieldsValue({
+      productName: record.productName,
+      barCode: record.barCode,
+      hsn_sac_code: record.hsn_sac_code,
+      gstType: hasGSTValue ? "with" : "no",
+      gstPercent: record.gstPercent,
+      discountPercent: record.discountPercent,
+      piecePrice: record.piecePrice,
+      pieceSalesPrice: record.pieceSalesPrice,
+      purchasePrice: record.purchasePrice || record.purchasePriceWithGST || record.purchasePriceWithoutGST,
+      salesPrice: record.salesPrice || record.salesPriceWithGST || record.salesPriceWithoutGST,
+      description: record.description,
+      availability: record.availability,
+      lowQtyIndication: record.lowQtyIndication,
+      unitQuantity: record.unitQuantity,
+      brandId: record.brandId,
+      categoryId: record.categoryId,
+      unitId: record.unitId,
+    });
+  };
+
+  // Handle hard delete
+  const handleDelete = async (id) => {
+    try {
+      await api.delete(`/api/products/${id}/hard`);
+      message.success("Product deleted successfully");
+      setProducts(products.filter((product) => product.id !== id));
+      fetchProducts();
+    } catch (err) {
+      console.error("Error deleting product", err);
+      message.error("Error deleting product");
+    }
+  };
+
+  // PDF Export
+  const exportToPDF = async () => {
+    const res = await api.get("/api/products?page=1&limit=1000");
+    const allProducts = res.data.data || [];
+
+    const printWindow = window.open("", "_blank");
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Product List</title>
+          <style>
+            body { font-family: Arial, sans-serif; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; }
+            .header { text-align: center; margin-bottom: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Product List</h1>
+            <p>Generated on: ${new Date().toLocaleDateString()}</p>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Barcode</th>
+                <th>Product Name</th>
+                <th>Brand</th>
+                <th>Category</th>
+                <th>Unit</th>
+                <th>Availability</th>
+                <th>GST %</th>
+                <th>Unit Purchase Price</th>
+                <th>Unit Sales Price</th>
+                <th>Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allProducts
+                .filter((p) =>
+                  p.productName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                  p.barCode?.toLowerCase().includes(searchTerm.toLowerCase())
+                )
+                .map(
+                  (product) => `
+                <tr>
+                  <td>${product.barCode || "-"}</td>
+                  <td>${product.productName || "-"}</td>
+                  <td>${product.brand?.brandName || "-"}</td>
+                  <td>${product.category?.categoryName || "-"}</td>
+                  <td>${product.unit?.unitName || "-"}</td>
+                  <td>${product.availability || "-"}</td>
+                  <td>${product.hasGST && product.gstPercent ? `${product.gstPercent}%` : "-"}</td>
+                  <td>₹${(product.purchasePrice || 0).toFixed(2)}</td>
+                  <td>₹${(product.salesPrice || 0).toFixed(2)}</td>
+                  <td>₹${((product.salesPrice || 0) - (product.purchasePrice || 0)).toFixed(2)}</td>
+                </tr>`
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
+  // Table columns
+  const columns = [
+    { title: "Barcode", dataIndex: "barCode", key: "barCode" },
+    {
+      title: "Product Name",
+      dataIndex: "productName",
+      key: "productName",
+      render: (title) => (
+        <div style={{ minWidth: 180, wordWrap: "break-word" }}>
+          {title}
+        </div>
+      ),
+    },
+    {
+      title: "Brand",
+      dataIndex: ["brand", "brandName"],
+      key: "brand",
+      render: (brandName) => brandName || "-",
+    },
+    {
+      title: "Category",
+      dataIndex: ["category", "categoryName"],
+      key: "category",
+      render: (categoryName) => categoryName || "-",
+    },
+    {
+      title: "Unit",
+      dataIndex: ["unit", "unitName"],
+      key: "unit",
+      render: (unitName) => unitName || "-",
+    },
+    {
+      title: "Availability",
+      dataIndex: "availability",
+      key: "availability",
+      render: (availability) => {
+        const colors = { Yes: "green", No: "red" };
+        return (
+          <Tag color={colors[availability] || "default"}>
+            {availability || "-"}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: "GST %",
+      key: "gst",
+      render: (_, record) => {
+        if (record.hasGST && record.gstPercent) {
+          return `${record.gstPercent}%`;
+        }
+        return "-";
+      },
+    },
+    {
+      title: "Unit Purchase Price",
+      dataIndex: "purchasePrice",
+      key: "purchasePrice",
+      render: (price) => price ? `₹${price.toFixed(2)}` : "-",
+    },
+    {
+      title: "Unit Sales Price",
+      dataIndex: "salesPrice",
+      key: "salesPrice",
+      render: (price) => price ? `₹${price.toFixed(2)}` : "-",
+    },
+    {
+      title: "Profit",
+      key: "profit",
+      render: (_, record) => {
+        const purchasePrice = record.purchasePrice || 0;
+        const salesPrice = record.salesPrice || 0;
+        const profit = salesPrice - purchasePrice;
+        const color = profit >= 0 ? "#52c41a" : "#ff4d4f";
+        return (
+          <span style={{ color, fontWeight: "bold" }}>
+            ₹{profit.toFixed(2)}
+          </span>
+        );
+      },
+    },
+    {
+      title: "Created By",
+      dataIndex: "createdBy",
+      key: "createdBy",
+      render: (createdBy) => createdBy || "-",
+    },
+    {
+      title: "Updated By",
+      dataIndex: "updatedBy",
+      key: "updatedBy",
+      render: (updatedBy) => updatedBy || "-",
+    },
+    {
+      title: "Actions",
+      key: "actions",
+      render: (_, record) => (
+        <Space>
+          {canEdit() && (
+            <Button icon={<EditOutlined />} onClick={() => handleEdit(record)} />
+          )}
+          {canDelete() && (
+            <Popconfirm
+              title="Are you sure to delete this record permanently?"
+              onConfirm={() => handleDelete(record.id)}
+            >
+              <Button icon={<DeleteOutlined />} danger />
+            </Popconfirm>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Product Management</h1>
+        <Space>
+          <Button
+            icon={<FilePdfOutlined />}
+            onClick={exportToPDF}
+            type="primary"
+            danger
+          >
+            Export PDF
+          </Button>
+          {canCreate() && (
+            <Button
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setShowForm(!showForm);
+                setEditingId(null);
+                setHasGST(false);
+                form.resetFields();
+              }}
+              type="primary"
+            >
+              {showForm ? "Cancel" : "Add Product"}
+            </Button>
+          )}
+        </Space>
+      </div>
+
+      {/* Add/Edit Form */}
+      {showForm && (
+        <Card className="mb-6">
+          <Form layout="vertical" form={form} onFinish={handleSubmit}>
+            <div className="grid grid-cols-2 gap-4">
+              <Form.Item
+                name="productName"
+                label="Product Name"
+                rules={[
+                  { required: true, message: "Product name is required" },
+                ]}
+              >
+                <Input />
+              </Form.Item>
+              <Form.Item
+                name="barCode"
+                label="Barcode"
+              >
+                <Input disabled placeholder="Auto-generated" />
+              </Form.Item>
+              <Form.Item
+                name="hsn_sac_code"
+                label="HSN/SAC Code (for GST)"
+              >
+                <Input maxLength={20} placeholder="Enter HSN or SAC code" />
+              </Form.Item>
+              <Form.Item
+                name="gstType"
+                label="GST"
+                initialValue="no"
+              >
+                <Select onChange={(value) => setHasGST(value === "with")}>
+                  <Select.Option value="no">No GST</Select.Option>
+                  <Select.Option value="with">With GST</Select.Option>
+                </Select>
+              </Form.Item>
+              <Form.Item
+                name="brandId"
+                label="Brand"
+              >
+                <Select placeholder="Select Brand" allowClear>
+                  {brands.map((brand) => (
+                    <Select.Option key={brand.id} value={brand.id}>
+                      {brand.brandName}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item
+                name="categoryId"
+                label="Category"
+              >
+                <Select placeholder="Select Category" allowClear>
+                  {categories.map((category) => (
+                    <Select.Option key={category.id} value={category.id}>
+                      {category.categoryName}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item
+                name="unitId"
+                label="Unit"
+              >
+                <Select placeholder="Select Unit" allowClear>
+                  {units.map((unit) => (
+                    <Select.Option key={unit.id} value={unit.id}>
+                      {unit.unitName}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item
+                name="availability"
+                label="Availability"
+                initialValue="Yes"
+              >
+                <Select>
+                  <Select.Option value="Yes">Yes</Select.Option>
+                  <Select.Option value="No">No</Select.Option>
+                </Select>
+              </Form.Item>
+              {hasGST && (
+                <Form.Item
+                  name="gstPercent"
+                  label="GST %"
+                  rules={[
+                    { required: true, message: "GST percentage is required when GST is enabled" },
+                    { type: "number", min: 0, max: 100, message: "GST must be between 0 and 100" }
+                  ]}
+                >
+                  <InputNumber
+                    style={{ width: "100%" }}
+                    min={0}
+                    max={100}
+                    precision={2}
+                    placeholder="Enter GST percentage"
+                  />
+                </Form.Item>
+              )}
+              <Form.Item
+                name="discountPercent"
+                label="Discount %"
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  max={100}
+                  precision={2}
+                />
+              </Form.Item>
+              <Form.Item
+                name="unitQuantity"
+                label="Quantity per Unit (pieces)"
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                  placeholder="e.g., 10 pieces per box"
+                  onChange={(value) => {
+                    const piecePrice = form.getFieldValue('piecePrice');
+                    const pieceSalesPrice = form.getFieldValue('pieceSalesPrice');
+                    if (piecePrice && value) {
+                      const calculatedPurchasePrice = value * piecePrice;
+                      form.setFieldValue('purchasePrice', calculatedPurchasePrice);
+                    }
+                    if (pieceSalesPrice && value) {
+                      const calculatedSalesPrice = value * pieceSalesPrice;
+                      form.setFieldValue('salesPrice', calculatedSalesPrice);
+                    }
+                  }}
+                />
+              </Form.Item>
+              <Form.Item
+                name="piecePrice"
+                label="Piece Price (₹ per piece)"
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                  placeholder="e.g., ₹10 per piece"
+                  onChange={(value) => {
+                    const unitQuantity = form.getFieldValue('unitQuantity');
+                    if (unitQuantity && value) {
+                      const calculatedPurchasePrice = unitQuantity * value;
+                      form.setFieldValue('purchasePrice', calculatedPurchasePrice);
+                    }
+                  }}
+                />
+              </Form.Item>
+              <Form.Item
+                name="purchasePrice"
+                label="Unit Purchase Price (₹ per unit)"
+                tooltip="Auto-calculated from Quantity × Piece Price, or enter manually"
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                  placeholder="Auto-calculated or enter manually"
+                />
+              </Form.Item>
+              <Form.Item
+                name="pieceSalesPrice"
+                label="Piece Sales Price (₹ per piece)"
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                  placeholder="e.g., ₹12 per piece"
+                  onChange={(value) => {
+                    const unitQuantity = form.getFieldValue('unitQuantity');
+                    if (unitQuantity && value) {
+                      const calculatedSalesPrice = unitQuantity * value;
+                      form.setFieldValue('salesPrice', calculatedSalesPrice);
+                    }
+                  }}
+                />
+              </Form.Item>
+              <Form.Item
+                name="salesPrice"
+                label="Unit Sales Price (₹ per unit)"
+                tooltip="Auto-calculated from Quantity × Piece Sales Price, or enter manually"
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                  placeholder="Auto-calculated or enter manually"
+                />
+              </Form.Item>
+              <Form.Item
+                name="lowQtyIndication"
+                label="Low Quantity Indication"
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                />
+              </Form.Item>
+              <Form.Item
+                name="description"
+                label="Description"
+                className="col-span-2"
+              >
+                <Input.TextArea rows={3} />
+              </Form.Item>
+            </div>
+            <Form.Item>
+              <Button type="primary" htmlType="submit">
+                {editingId ? "Update Product" : "Add Product"}
+              </Button>
+            </Form.Item>
+          </Form>
+        </Card>
+      )}
+
+      {/* Search and Filters */}
+      <div style={{ marginBottom: 20, display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <Input.Search
+          placeholder="Search by product name or barcode"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{ maxWidth: 300 }}
+        />
+        <Select
+          placeholder="Filter by Brand"
+          allowClear
+          value={brandFilter}
+          onChange={(value) => setBrandFilter(value)}
+          style={{ width: 180 }}
+        >
+          {brands.map((brand) => (
+            <Select.Option key={brand.id} value={brand.id}>
+              {brand.brandName}
+            </Select.Option>
+          ))}
+        </Select>
+        <Select
+          placeholder="Filter by Category"
+          allowClear
+          value={categoryFilter}
+          onChange={(value) => setCategoryFilter(value)}
+          style={{ width: 180 }}
+        >
+          {categories.map((category) => (
+            <Select.Option key={category.id} value={category.id}>
+              {category.categoryName}
+            </Select.Option>
+          ))}
+        </Select>
+        <Select
+          placeholder="Filter by Availability"
+          allowClear
+          value={availabilityFilter}
+          onChange={(value) => setAvailabilityFilter(value)}
+          style={{ width: 180 }}
+        >
+          <Select.Option value="Yes">Yes</Select.Option>
+          <Select.Option value="No">No</Select.Option>
+        </Select>
+        <Button
+          onClick={() => {
+            setSearchTerm('');
+            setBrandFilter(null);
+            setCategoryFilter(null);
+            setAvailabilityFilter(null);
+          }}
+          disabled={!searchTerm && !brandFilter && !categoryFilter && !availabilityFilter}
+        >
+          Clear Filters
+        </Button>
+      </div>
+
+      {/* Table */}
+      <Table
+        columns={columns}
+        dataSource={(products || []).filter((p) => {
+          const searchMatch =
+            p.productName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            p.barCode?.toLowerCase().includes(searchTerm.toLowerCase());
+
+          const brandMatch = brandFilter
+            ? p.brandId === brandFilter
+            : true;
+
+          const categoryMatch = categoryFilter
+            ? p.categoryId === categoryFilter
+            : true;
+
+          const availabilityMatch = availabilityFilter
+            ? p.availability === availabilityFilter
+            : true;
+
+          return searchMatch && brandMatch && categoryMatch && availabilityMatch;
+        })}
+        rowKey="id"
+        loading={loading}
+        pagination={{
+          ...pagination,
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} products`
+        }}
+        onChange={handleTableChange}
+      />
+    </div>
+  );
+};
+
+export default ProductManagement;
+

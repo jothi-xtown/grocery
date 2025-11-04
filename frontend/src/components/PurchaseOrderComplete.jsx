@@ -2,12 +2,12 @@ import { useState, useEffect } from "react";
 import {
   Button,
   Input,
+  InputNumber,
   Table,
   Tag,
   Space,
   Form,
   Select,
-  InputNumber,
   Card,
   Popconfirm,
   DatePicker,
@@ -36,7 +36,7 @@ const PurchaseOrderComplete = () => {
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [addresses, setAddresses] = useState([]);
-  const [items, setItems] = useState([]);
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -52,6 +52,8 @@ const PurchaseOrderComplete = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createForm] = Form.useForm();
   const [gstInclude, setGstInclude] = useState(false);
+  const [selectedProductForForm, setSelectedProductForForm] = useState(null);
+  const [poItemTotal, setPoItemTotal] = useState(0);
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 10,
@@ -66,17 +68,17 @@ const PurchaseOrderComplete = () => {
   const fetchData = async (page = 1, limit = 10) => {
     setLoading(true);
     try {
-      const [posRes, suppliersRes, addressesRes, itemsRes] = await Promise.all([
+      const [posRes, suppliersRes, addressesRes, productsRes] = await Promise.all([
         api.get(`/api/pos?page=${page}&limit=${limit}`),
         api.get("/api/suppliers?limit=1000"),
         api.get("/api/address?limit=1000"),
-        api.get("/api/items?limit=1000"),
+        api.get("/api/products?limit=1000"),
       ]);
 
       setPurchaseOrders(posRes.data.data || []);
       setSuppliers(suppliersRes.data.data || []);
       setAddresses(addressesRes.data.data || []);
-      setItems(itemsRes.data.data || []);
+      setProducts(productsRes.data.data || []);
 
       // Update pagination state
       setPagination(prev => ({
@@ -86,8 +88,8 @@ const PurchaseOrderComplete = () => {
         pageSize: posRes.data.limit || limit,
       }));
     } catch (err) {
-      message.error("Error fetching data");
-
+      console.error("Error fetching data", err);
+      message.error(err?.response?.data?.message || "Error fetching data");
     } finally {
       setLoading(false);
     }
@@ -109,6 +111,7 @@ const PurchaseOrderComplete = () => {
       setGstInclude(gstValue);
     }
   }, [createForm]);
+
 
   // Watch for GST include changes to trigger re-render
   const handleGstIncludeChange = (value) => {
@@ -141,9 +144,11 @@ const PurchaseOrderComplete = () => {
         createdBy: localStorage.getItem("username"),
         updatedBy: localStorage.getItem("username"),
         items: poItems.map(item => ({
-          itemId: item.itemId,
-          quantity: item.quantity,
-          rate: item.rate
+          productId: item.productId,
+          unitQuantity: item.unitQuantity,
+          rate: item.rate,
+          totalQuantity: item.totalQuantity,
+          total: item.total
         }))
       };
 
@@ -271,20 +276,40 @@ const PurchaseOrderComplete = () => {
 
   // Add item to PO items list
   const addItemToPO = (values) => {
-    const selectedItem = items.find(item => item.id === values.itemId);
+    const selectedProduct = products.find(product => product.id === values.productId);
+    if (!selectedProduct) {
+      message.error("Product not found");
+      return;
+    }
+
+    const unitQuantity = Number(values.unitQuantity) || 0;
+    const unitPrice = Number(values.unitPrice) || selectedProduct.purchasePrice || 0;
+    const productUnitQuantity = selectedProduct.unitQuantity || 1;
+    const totalQuantity = unitQuantity * productUnitQuantity;
+    const total = Number(values.total) || (unitQuantity * unitPrice);
+
     const newItem = {
       id: Date.now(), // Temporary ID for frontend
-      itemId: values.itemId,
-      quantity: Number(values.quantity),
-      rate: Number(values.rate),
-      total: Number(values.quantity) * Number(values.rate),
-      item: selectedItem
+      productId: values.productId,
+      unitQuantity: unitQuantity,
+      rate: unitPrice,
+      unitPrice: unitPrice,
+      totalQuantity: totalQuantity,
+      total: total,
+      product: selectedProduct
     };
 
-    setPoItems([...poItems, newItem]);
+    if (editingItemId) {
+      setPoItems(poItems.map(item => item.id === editingItemId ? newItem : item));
+      message.success("Item updated in PO");
+    } else {
+      setPoItems([...poItems, newItem]);
+      message.success("Item added to PO");
+    }
+    
     setShowItemForm(false);
+    setEditingItemId(null);
     itemForm.resetFields();
-    message.success("Item added to PO");
   };
 
   // Remove item from PO items list
@@ -308,11 +333,16 @@ const PurchaseOrderComplete = () => {
   const handleEditItem = (item) => {
     setEditingItemId(item.id);
     setShowItemForm(true);
+    const product = products.find(p => p.id === item.productId);
+    setSelectedProductForForm(product || null);
+    const total = item.total || (item.unitQuantity * (item.rate || item.unitPrice || product?.purchasePrice || 0));
     itemForm.setFieldsValue({
-      itemId: item.itemId,
-      quantity: item.quantity,
-      rate: item.rate,
+      productId: item.productId,
+      unitQuantity: item.unitQuantity,
+      unitPrice: item.rate || item.unitPrice || product?.purchasePrice || 0,
+      total: total,
     });
+    setPoItemTotal(total);
   };
 
   // Handle delete item
@@ -1033,22 +1063,33 @@ const PurchaseOrderComplete = () => {
               <Table
                 dataSource={poItems}
                 columns={[
-                  { title: "Item", dataIndex: ["item", "itemName"], key: "itemName" },
-                  { title: "Part Number", dataIndex: ["item", "partNumber"], key: "partNumber" },
-                  { title: "Quantity", dataIndex: "quantity", key: "quantity" },
-                  { title: "Rate", dataIndex: "rate", key: "rate", render: (rate) => `₹${rate}` },
-                  { title: "Total", dataIndex: "total", key: "total", render: (total) => `₹${total}` },
+                  { title: "Product Name", dataIndex: ["product", "productName"], key: "productName" },
+                  { title: "Barcode", dataIndex: ["product", "barCode"], key: "barCode" },
+                  { title: "Unit", dataIndex: ["product", "unit", "unitName"], key: "unit", render: (unitName) => unitName || "-" },
+                  { title: "Unit Quantity", dataIndex: "unitQuantity", key: "unitQuantity" },
+                  { title: "Unit Price (₹)", dataIndex: "rate", key: "rate", render: (rate) => `₹${parseFloat(rate || 0).toFixed(2)}` },
+                  { title: "Total Quantity (pieces)", dataIndex: "totalQuantity", key: "totalQuantity" },
+                  { title: "Total Price (₹)", dataIndex: "total", key: "total", render: (total) => `₹${parseFloat(total || 0).toFixed(2)}` },
                   {
                     title: "Actions",
                     key: "actions",
                     render: (_, record) => (
-                      <Button
-                        size="small"
-                        danger
-                        onClick={() => removeItemFromPO(record.id)}
-                      >
-                        Remove
-                      </Button>
+                      <Space>
+                        <Button
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={() => handleEditItem(record)}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="small"
+                          danger
+                          onClick={() => removeItemFromPO(record.id)}
+                        >
+                          Remove
+                        </Button>
+                      </Space>
                     ),
                   },
                 ]}
@@ -1160,11 +1201,13 @@ const PurchaseOrderComplete = () => {
             <Table
               dataSource={selectedPO.poItems || []}
               columns={[
-                { title: "Item", dataIndex: ["item", "itemName"], key: "itemName" },
-                { title: "Part Number", dataIndex: ["item", "partNumber"], key: "partNumber" },
-                { title: "Quantity", dataIndex: "quantity", key: "quantity" },
-                { title: "Rate", dataIndex: "rate", key: "rate", render: (rate) => `₹${rate}` },
-                { title: "Total", dataIndex: "total", key: "total", render: (total) => `₹${total}` },
+                { title: "Product Name", dataIndex: ["product", "productName"], key: "productName" },
+                { title: "Barcode", dataIndex: ["product", "barCode"], key: "barCode" },
+                { title: "Unit", dataIndex: ["product", "unit", "unitName"], key: "unit", render: (unitName) => unitName || "-" },
+                { title: "Unit Quantity", dataIndex: "unitQuantity", key: "unitQuantity" },
+                { title: "Rate (per unit)", dataIndex: "rate", key: "rate", render: (rate) => `₹${rate?.toFixed(2) || 0}` },
+                { title: "Total Quantity", dataIndex: "totalQuantity", key: "totalQuantity" },
+                { title: "Total Price", dataIndex: "total", key: "total", render: (total) => `₹${total?.toFixed(2) || 0}` },
               ]}
               pagination={false}
               size="small"
@@ -1229,83 +1272,130 @@ const PurchaseOrderComplete = () => {
         onCancel={() => {
           setShowItemForm(false);
           setEditingItemId(null);
+          setSelectedProductForForm(null);
+          setPoItemTotal(0);
           itemForm.resetFields();
         }}
         footer={null}
-        width={600}
+        width={700}
       >
         <Form layout="vertical" form={itemForm} onFinish={addItemToPO}>
           <Form.Item
-            name="itemId"
-            label="Select Item"
-            rules={[{ required: true, message: "Please select an item" }]}
+            name="productId"
+            label="Select Product"
+            rules={[{ required: true, message: "Please select a product" }]}
           >
             <Select
-              placeholder="Select item"
+              placeholder="Select product"
               showSearch
-              onChange={(itemId) => {
-                const selectedItem = items.find(item => item.id === itemId);
-                if (selectedItem) {
-                  // Auto-fill the rate with item's purchase rate
-                  itemForm.setFieldValue('rate', selectedItem.purchaseRate || 0);
-                  // Auto-calculate total
-                  const quantity = itemForm.getFieldValue('quantity') || 0;
-                  const total = quantity * (selectedItem.purchaseRate || 0);
-                  itemForm.setFieldValue('total', total);
+              filterOption={(input, option) =>
+                (option?.children?.props?.children || option?.children || "")
+                  .toLowerCase()
+                  .includes(input.toLowerCase())
+              }
+              onChange={(productId) => {
+                const selectedProduct = products.find(product => product.id === productId);
+                setSelectedProductForForm(selectedProduct || null);
+                if (selectedProduct) {
+                  // Auto-fill the unit price with product's unit purchase price
+                  itemForm.setFieldsValue({
+                    unitPrice: selectedProduct.purchasePrice || 0,
+                    unitQuantity: 0,
+                    total: 0
+                  });
+                  setPoItemTotal(0);
                 }
               }}
             >
-              {items.map((item) => (
-                <Select.Option key={item.id} value={item.id}>
-                  {item.itemName} ({item.partNumber}) - ₹{item.purchaseRate}
+              {products.map((product) => (
+                <Select.Option key={product.id} value={product.id}>
+                  {product.productName} ({product.barCode}) - ₹{product.purchasePrice || 0}/{product.unit?.unitName || 'unit'}
                 </Select.Option>
               ))}
             </Select>
           </Form.Item>
 
-          <Row gutter={16}>
-            <Col span={12}>
+          {selectedProductForForm ? (
+            <>
               <Form.Item
-                name="quantity"
-                label="Quantity"
-                rules={[{ required: true, message: "Please enter quantity" }]}
+                label="Unit"
               >
-                <InputNumber
-                  className="w-full"
-                  min={0.1}
-                  step={0.1}
-                  precision={1}
-                  placeholder="Enter quantity"
-                  onChange={(value) => {
-                    // Auto-update total when quantity changes
-                    const rate = itemForm.getFieldValue('rate') || 0;
-                    const total = (value * rate) || 0;
-                    itemForm.setFieldValue('total', total);
+                <Input
+                  value={selectedProductForForm.unit?.unitName || "-"}
+                  disabled
+                  style={{ backgroundColor: "#f5f5f5" }}
+                />
+              </Form.Item>
+
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item
+                    name="unitPrice"
+                    label="Price per Unit (₹)"
+                    rules={[{ required: true, message: "Please enter unit price" }]}
+                  >
+                    <InputNumber
+                      className="w-full"
+                      min={0}
+                      step={0.01}
+                      precision={2}
+                      placeholder="Unit price"
+                      onChange={(value) => {
+                        const quantity = itemForm.getFieldValue('unitQuantity') || 0;
+                        const total = (quantity * value) || 0;
+                        itemForm.setFieldsValue({ total });
+                        setPoItemTotal(total);
+                      }}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="unitQuantity"
+                    label="Quantity"
+                    rules={[{ required: true, message: "Please enter quantity" }]}
+                  >
+                    <InputNumber
+                      className="w-full"
+                      min={0.1}
+                      step={0.1}
+                      precision={1}
+                      placeholder="Enter quantity"
+                      onChange={(value) => {
+                        const unitPrice = itemForm.getFieldValue('unitPrice') || 0;
+                        const total = (value * unitPrice) || 0;
+                        itemForm.setFieldsValue({ total });
+                        setPoItemTotal(total);
+                      }}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Form.Item
+                label="Total (₹)"
+              >
+                <Input
+                  value={`₹${poItemTotal.toFixed(2)}`}
+                  disabled
+                  style={{ 
+                    backgroundColor: "#f0f0f0", 
+                    fontWeight: "bold",
+                    fontSize: "16px",
+                    color: "#52c41a"
                   }}
                 />
               </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="rate"
-                label="Rate (₹)"
-                rules={[{ required: true, message: "Please enter rate" }]}
-              >
-                <InputNumber
-                  className="w-full"
-                  min={0}
-                  step={0.01}
-                  placeholder="Enter rate"
-                  onChange={(value) => {
-                    // Auto-update total when rate changes
-                    const quantity = itemForm.getFieldValue('quantity') || 0;
-                    const total = (quantity * value) || 0;
-                    itemForm.setFieldValue('total', total);
-                  }}
-                />
+              
+              <Form.Item name="total" hidden>
+                <InputNumber value={poItemTotal} />
               </Form.Item>
-            </Col>
-          </Row>
+            </>
+          ) : (
+            <div style={{ textAlign: "center", padding: "20px", color: "#999" }}>
+              Please select a product first
+            </div>
+          )}
 
           <Form.Item>
             <Space>
@@ -1315,6 +1405,8 @@ const PurchaseOrderComplete = () => {
               <Button onClick={() => {
                 setShowItemForm(false);
                 setEditingItemId(null);
+                setSelectedProductForForm(null);
+                setPoItemTotal(0);
                 itemForm.resetFields();
               }}>
                 Cancel
