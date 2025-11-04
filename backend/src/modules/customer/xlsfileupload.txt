@@ -1,0 +1,132 @@
+npm install multer xlsx
+
+
+Create your upload + seed route
+
+Create a new file:
+src/modules/customer/customer.routes.js
+
+import express from "express";
+import multer from "multer";
+import xlsx from "xlsx";
+import Customer from "./customer.model.js";
+
+const router = express.Router();
+
+// 🟢 Multer setup to store file temporarily
+const upload = multer({ dest: "uploads/" });
+
+// 🟢 Upload Excel + insert customers
+router.post("/uploadExcel", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    console.log("📂 File uploaded:", req.file.path);
+
+    // Step 1: Read Excel file
+    const workbook = xlsx.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0];
+    const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    console.log(`📊 Found ${sheetData.length} rows in Excel`);
+
+    // Step 2: Insert each customer
+    let added = 0;
+    for (const row of sheetData) {
+      const {
+        customer_name,
+        pincode,
+        phone,
+        old_balance,
+        advance,
+        credit_limit,
+        available_limit,
+        balance,
+        gst_pan_number,
+        status,
+        createdBy,
+      } = row;
+
+      if (!customer_name || !phone) continue;
+
+      // Check if customer exists
+      const existing = await Customer.findOne({ where: { phone } });
+      if (existing) {
+        console.log(`⚠️ Customer already exists: ${customer_name}`);
+        continue;
+      }
+
+      await Customer.create({
+        customer_name,
+        pincode,
+        phone,
+        old_balance: old_balance || 0,
+        advance: advance || 0,
+        credit_limit: credit_limit || 0,
+        available_limit: available_limit || 0,
+        balance: balance || 0,
+        gst_pan_number,
+        status: status || "active",
+        createdBy: createdBy || "system",
+      });
+      added++;
+    }
+
+    return res.json({
+      message: `✅ Successfully added ${added} customers`,
+      total: sheetData.length,
+    });
+  } catch (err) {
+    console.error("❌ Error uploading Excel:", err);
+    res.status(500).json({ error: "Server error while uploading Excel" });
+  }
+});
+
+export default router;
+
+✅ 3️⃣ Hook it into your main backend
+
+In src/app.js (or wherever you configure your routes):
+
+import express from "express";
+import customerRoutes from "./modules/customer/customer.routes.js";
+
+const app = express();
+
+app.use(express.json());
+app.use("/api/customers", customerRoutes);
+
+✅ 4️⃣ Upload in Postman
+
+Request type:
+POST http://localhost:5001/api/customers/uploadExcel
+
+Body:
+
+Select Body → form-data
+
+Add a key named file
+
+Type → File
+
+Choose your Excel file (like customers.xlsx)
+
+Example:
+
+KEY	TYPE	VALUE
+file	File	choose your .xlsx file
+✅ 5️⃣ Excel format (headers)
+
+Your Excel must have these columns (header row):
+
+customer_name	pincode	phone	old_balance	advance	credit_limit	available_limit	balance	gst_pan_number	status	createdBy
+✅ 6️⃣ Response example
+
+You’ll get something like:
+
+{
+  "message": "✅ Successfully added 45 customers",
+  "total": 50
+}
