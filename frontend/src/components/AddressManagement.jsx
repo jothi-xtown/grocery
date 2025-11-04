@@ -96,7 +96,14 @@ const AddressManagement = () => {
       fetchAddresses(pagination.current, pagination.pageSize);
     } catch (err) {
       console.error("Error saving address", err);
-      message.error("Error saving address");
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || (errorData?.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0
+          ? errorData.errors.map(e => `${e.field || e.path || "unknown"}: ${e.message}`).join(", ")
+          : null)
+        || err?.message 
+        || "Error saving address";
+      message.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -122,7 +129,14 @@ const AddressManagement = () => {
       fetchAddresses(pagination.current, pagination.pageSize);
     } catch (err) {
       console.error("Error deleting address", err);
-      message.error("Error deleting address");
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || (errorData?.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0
+          ? errorData.errors.map(e => `${e.field || e.path || "unknown"}: ${e.message}`).join(", ")
+          : null)
+        || err?.message 
+        || "Error deleting address";
+      message.error(errorMessage);
     }
   };
 

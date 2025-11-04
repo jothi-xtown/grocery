@@ -16,16 +16,19 @@ export const createSupplierSchema = z.object({
     z.undefined()
   ]).optional().nullable(),
   address: z.string().min(1).max(255),
-  advancePaid: z.number().nonnegative().optional().default(0),
-  oldBalance: z.number().nonnegative().optional().default(0),
-  creditLimit: z.number().nonnegative().optional().default(0),
-  availableLimit: z.number().nonnegative().optional().default(0),
-  balance: z.number().optional().default(0),
+  advancePaid: z.coerce.number().nonnegative().optional().default(0),
+  oldBalance: z.coerce.number().nonnegative().optional().default(0),
+  creditLimit: z.coerce.number().nonnegative().optional().default(0),
+  availableLimit: z.coerce.number().nonnegative().optional().default(0),
+  balance: z.coerce.number().optional().default(0),
   status: z.enum(["active", "inactive"]).optional(),
-});
+  // Allow these fields for BaseController
+  createdBy: z.string().optional(),
+  updatedBy: z.string().optional(),
+}).passthrough();
 
-export const updateSupplierSchema = createSupplierSchema.partial();
+export const updateSupplierSchema = createSupplierSchema.partial().passthrough();
 
-export const deleteSupplierSchema = z.object({});
+export const deleteSupplierSchema = z.object({}).passthrough();
 
 

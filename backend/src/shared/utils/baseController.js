@@ -61,19 +61,44 @@ export class BaseController {
         updatedBy: req.user.username, // Store username from JWT token
       };
       
+      console.log(`🔵 [BaseController] Updating ${this.entityName}:`, {
+        id: req.params.id,
+        bodyBeforeMerge: req.body,
+        userData: userData,
+        fields: Object.keys(userData),
+        updatedBy: userData.updatedBy,
+        userFromJWT: req.user?.username,
+      });
+      
       const item = await this.service.update(req.params.id, userData);
+      
+      console.log(`✅ [BaseController] ${this.entityName} update result:`, {
+        id: req.params.id,
+        itemFound: !!item,
+        itemData: item ? Object.keys(item.toJSON ? item.toJSON() : item) : null,
+      });
       if (!item) {
         return res.status(404).json({
           success: false,
           message: `${this.entityName} not found`,
         });
       }
+      
+      console.log(`✅ [BaseController] ${this.entityName} updated successfully:`, req.params.id);
+      
       return res.json({
         success: true,
         message: `${this.entityName} updated successfully`,
         data: item,
       });
     } catch (error) {
+      console.error(`❌ [BaseController] Error updating ${this.entityName}:`, error);
+      console.error("Error details:", {
+        entityName: this.entityName,
+        id: req.params.id,
+        errorMessage: error.message,
+        errorStack: error.stack,
+      });
       next(error);
     }
   };

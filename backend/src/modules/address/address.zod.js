@@ -5,8 +5,11 @@ export const createAddressSchema = z.object({
   addressShip: z.string().min(1).max(255),
   phone: z.string().regex(/^\d{10}$/, "Phone number must be exactly 10 digits"),
   email: z.string().email().max(255),
-});
+  // Allow these fields for BaseController
+  createdBy: z.string().optional(),
+  updatedBy: z.string().optional(),
+}).passthrough();
 
-export const updateAddressSchema = createAddressSchema.partial();
+export const updateAddressSchema = createAddressSchema.partial().passthrough();
 
-export const deleteAddressSchema = z.object({});
+export const deleteAddressSchema = z.object({}).passthrough();

@@ -48,9 +48,23 @@ export class BaseCrud {
 
   //  UPDATE
   async update(id, data) {
+    console.log(`🔵 [BaseCrud] Updating ${this.model.name}:`, {
+      id,
+      dataKeys: Object.keys(data),
+      data: data,
+    });
+    
     const item = await this.model.findByPk(id);
-    if (!item) return null;
-    return item.update(data);
+    if (!item) {
+      console.log(`❌ [BaseCrud] ${this.model.name} not found with id:`, id);
+      return null;
+    }
+    
+    console.log(`✅ [BaseCrud] ${this.model.name} found, updating with data:`, data);
+    const updatedItem = await item.update(data);
+    console.log(`✅ [BaseCrud] ${this.model.name} updated successfully`);
+    
+    return updatedItem;
   }
 
   //  SOFT DELETE (requires model with `paranoid: true`)

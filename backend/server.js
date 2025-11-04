@@ -22,6 +22,7 @@ import { addressRoutes } from "./src/modules/address/index.js"
 import { stockRoutes } from "./src/modules/stock/index.js"
 import { productRoutes } from "./src/modules/product/index.js"
 import { purchaseOrderRoutes } from "./src/modules/purchaseOrder/index.js"
+import { userRoutes } from "./src/modules/user/index.js"
 
 const app = express();
 
@@ -49,15 +50,39 @@ const initializeDatabase = async () => {
       console.log("🔄 Syncing database schema (alter mode enabled for development)...");
       console.log("⏳ This may take a while if there are schema changes...");
       
-      // Sync without timeout - let it complete naturally
-      // Alter operations can take time depending on table size and changes needed
-      await sequelize.sync({ 
-        force: false, 
-        alter: true, // Enable alter in development only
-        logging: false // Disable verbose logging to speed up
-      });
+      // Sync with retry logic to handle deadlocks
+      // Alter operations can take time and may cause deadlocks if tables are locked
+      let syncRetries = 3;
+      let syncSuccess = false;
       
-      console.log("✅ Database schema synced successfully");
+      while (syncRetries > 0 && !syncSuccess) {
+        try {
+          await sequelize.sync({ 
+            force: false, 
+            alter: true, // Enable alter in development only
+            logging: false, // Disable verbose logging to speed up
+          });
+          
+          syncSuccess = true;
+          console.log("✅ Database schema synced successfully");
+        } catch (syncError) {
+          syncRetries--;
+          if (syncError.message.includes("Deadlock") || syncError.message.includes("Lock wait timeout")) {
+            console.warn(`⚠️  Database sync deadlock detected (${3 - syncRetries}/3 retries remaining)...`);
+            if (syncRetries > 0) {
+              // Wait before retrying (exponential backoff)
+              const waitTime = Math.pow(2, 3 - syncRetries) * 1000; // 2s, 4s, 8s
+              console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+            } else {
+              throw syncError;
+            }
+          } else {
+            // Non-deadlock error, throw immediately
+            throw syncError;
+          }
+        }
+      }
     } else {
       console.log("⚠️  Production mode: Database schema sync disabled");
       // In production, just sync without alter
@@ -108,6 +133,7 @@ protectedRoutes.use('/address', addressRoutes);
 protectedRoutes.use('/stock', stockRoutes);
 protectedRoutes.use('/products', productRoutes);
 protectedRoutes.use('/pos', purchaseOrderRoutes);
+protectedRoutes.use('/users', userRoutes);
 
 
 // Now apply auth + mount once

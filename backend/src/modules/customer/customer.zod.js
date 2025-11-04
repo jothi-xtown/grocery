@@ -4,11 +4,11 @@ export const createCustomerSchema = z.object({
   customer_name: z.string().min(1, "Customer name is required"),
   pincode: z.string().optional().nullable(),
   phone: z.string().min(1, "Phone number is required"), // Allow shorter numbers
-  old_balance: z.number().optional().default(0),
-  advance: z.number().optional().default(0),
-  credit_limit: z.number().optional().default(0),
-  available_limit: z.number().optional().default(0),
-  balance: z.number().optional().default(0),
+  old_balance: z.coerce.number().optional().default(0),
+  advance: z.coerce.number().optional().default(0),
+  credit_limit: z.coerce.number().optional().default(0),
+  available_limit: z.coerce.number().optional().default(0),
+  balance: z.coerce.number().optional().default(0),
   gst_pan_number: z.string().optional().nullable(),
   // Allow these fields for BaseController
   createdBy: z.string().optional(),
@@ -16,6 +16,6 @@ export const createCustomerSchema = z.object({
 }).passthrough();
 
 
-export const updateCustomerSchema = createCustomerSchema.partial();
+export const updateCustomerSchema = createCustomerSchema.partial().passthrough();
 
 export const deleteCustomerSchema = z.object({}).passthrough(); // Empty object, ID comes from params

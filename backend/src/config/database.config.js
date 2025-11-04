@@ -69,10 +69,8 @@ export const connectDB = async () => {
     try {
       await sequelize.authenticate();
       
-      // Sync database in development (be careful in production!)
-      if (environment === "development") {
-        await sequelize.sync({ alter: true });
-      }
+      // Don't sync here - sync is handled in server.js to avoid duplicate sync calls
+      // that can cause deadlocks
       
       return true;
     } catch (error) {
