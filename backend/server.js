@@ -21,6 +21,7 @@ import { supplierRoutes } from "./src/modules/supplier/index.js"
 import { addressRoutes } from "./src/modules/address/index.js"
 import { stockRoutes } from "./src/modules/stock/index.js"
 import { productRoutes } from "./src/modules/product/index.js"
+import { billRoutes } from "./src/modules/bill/index.js"
 import { purchaseOrderRoutes } from "./src/modules/purchaseOrder/index.js"
 import { userRoutes } from "./src/modules/user/index.js"
 
@@ -59,7 +60,8 @@ const initializeDatabase = async () => {
         try {
           await sequelize.sync({ 
             force: false, 
-            alter: true, // Enable alter in development only
+            alter: false, // Disable alter to avoid MySQL 64 key limit issue
+            // If you need schema changes, use migrations instead of alter: true
             logging: false, // Disable verbose logging to speed up
           });
           
@@ -132,9 +134,9 @@ protectedRoutes.use('/suppliers', supplierRoutes);
 protectedRoutes.use('/address', addressRoutes);
 protectedRoutes.use('/stock', stockRoutes);
 protectedRoutes.use('/products', productRoutes);
+protectedRoutes.use('/bill', billRoutes);
 protectedRoutes.use('/pos', purchaseOrderRoutes);
 protectedRoutes.use('/users', userRoutes);
-
 
 // Now apply auth + mount once
 app.use("/api", authenticate, protectedRoutes);

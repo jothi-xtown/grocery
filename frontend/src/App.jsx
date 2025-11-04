@@ -21,6 +21,7 @@ import Reports from "./components/Reports";
 import ItemStockReport from "./components/ItemStockReport";
 import AddressManagement from "./components/AddressManagement";
 import InventoryManagement from "./components/InventoryManagement";
+import BillManagement from "./components/BillManagement";
 import NotFound from "./components/NotFound";
 import ErrorBoundary from "./components/ErrorBoundary";
 
@@ -52,6 +53,9 @@ function App() {
 
             {/* Purchase Order */}
             <Route path="purchase-order" element={<PurchaseOrderComplete />} />
+
+            {/* Bill Management */}
+            <Route path="bill" element={<BillManagement />} />
 
             {/* Reports sub-routes */}
             <Route path="reports" element={<Reports />} />

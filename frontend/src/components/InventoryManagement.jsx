@@ -307,7 +307,7 @@ const InventoryManagement = () => {
       // Create a map of productId -> stock entry
       const stockMap = {};
       stockEntries.forEach((stock) => {
-        if (stock.productId) {
+        if (stock && stock.productId) {
           stockMap[stock.productId] = stock;
         }
       });
@@ -317,10 +317,18 @@ const InventoryManagement = () => {
         const stock = stockMap[product.id];
         return {
           ...product,
-          stock: stock ? stock.currentStock : 0,
-          openingStock: stock ? stock.openingStock : 0,
-          purchasedQty: stock ? stock.purchasedQty : 0,
-          soldQty: stock ? stock.soldQty : 0,
+          stock: stock && stock.currentStock !== null && stock.currentStock !== undefined
+            ? parseFloat(stock.currentStock) || 0
+            : 0,
+          openingStock: stock && stock.openingStock !== null && stock.openingStock !== undefined
+            ? parseFloat(stock.openingStock) || 0
+            : 0,
+          purchasedQty: stock && stock.purchasedQty !== null && stock.purchasedQty !== undefined
+            ? parseFloat(stock.purchasedQty) || 0
+            : 0,
+          soldQty: stock && stock.soldQty !== null && stock.soldQty !== undefined
+            ? parseFloat(stock.soldQty) || 0
+            : 0,
           stockId: stock ? stock.id : null,
           location: stock ? stock.location : null,
         };
@@ -360,7 +368,7 @@ const InventoryManagement = () => {
       // Create stock map
       const stockMap = {};
       stockEntries.forEach((stock) => {
-        if (stock.productId) {
+        if (stock && stock.productId) {
           stockMap[stock.productId] = stock;
         }
       });
@@ -373,13 +381,25 @@ const InventoryManagement = () => {
 
       products.forEach((product) => {
         const stock = stockMap[product.id];
-        const currentStock = stock ? stock.currentStock : 0;
+        // Parse currentStock as number, handle null/undefined/string values
+        const currentStock = stock && stock.currentStock !== null && stock.currentStock !== undefined
+          ? parseFloat(stock.currentStock) || 0
+          : 0;
         totalStock += currentStock;
         if (currentStock > 0) {
           itemsInStock++;
         } else {
           itemsOutOfStock++;
         }
+      });
+
+      console.log("📊 [Inventory] Summary calculated:", {
+        totalItems,
+        totalStock,
+        itemsInStock,
+        itemsOutOfStock,
+        stockEntriesCount: stockEntries.length,
+        productsCount: products.length,
       });
 
       setSummary({
@@ -389,7 +409,8 @@ const InventoryManagement = () => {
         itemsOutOfStock,
       });
     } catch (err) {
-      console.error("Error fetching summary", err);
+      console.error("❌ [Inventory] Error fetching summary:", err);
+      console.error("Error details:", err?.response?.data || err?.message);
     }
   };
 

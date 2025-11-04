@@ -5,6 +5,7 @@ import Supplier from "../supplier/supplier.model.js";
 import Address from "../address/address.model.js";
 import Product from "../product/product.model.js";
 import Unit from "../unit/unit.model.js";
+import Stock from "../stock/stock.model.js";
 
 // 1. Create CRUD service from model
 const PurchaseOrderCrud = new BaseCrud(PurchaseOrder);
@@ -235,7 +236,16 @@ export class PurchaseOrderController extends BaseController {
       const transaction = await PurchaseOrder.sequelize.transaction();
 
       try {
-        const po = await PurchaseOrder.findByPk(req.params.id, { transaction });
+        const po = await PurchaseOrder.findByPk(req.params.id, { 
+          include: [
+            {
+              model: POItem,
+              as: "items",
+              required: false,
+            },
+          ],
+          transaction 
+        });
         if (!po) {
           await transaction.rollback();
           return res.status(404).json({
@@ -243,7 +253,12 @@ export class PurchaseOrderController extends BaseController {
             message: `${this.entityName} not found`,
           });
         }
-        
+
+        // Store previous status to check if status is changing to "received"
+        const previousStatus = po.status;
+        const isStatusChangingToReceived = 
+          userData.status === "received" && previousStatus !== "received";
+
         await po.update(userData, { transaction });
 
         // Update items only if explicitly provided and not empty
@@ -274,6 +289,93 @@ export class PurchaseOrderController extends BaseController {
           }
         } else {
           console.log("ℹ️ [PO Controller] Items not provided, preserving existing items");
+        }
+
+        // ✅ Update stock when PO status changes to "received"
+        if (isStatusChangingToReceived) {
+          console.log("📦 [PO Controller] Status changed to 'received', updating stock...");
+          
+          // Get PO items after they've been updated/created
+          // Need to fetch fresh items from database since they may have been recreated
+          const poWithItems = await PurchaseOrder.findByPk(req.params.id, {
+            include: [
+              {
+                model: POItem,
+                as: "items",
+                required: false,
+              },
+            ],
+            transaction,
+          });
+          
+          const poItems = (poWithItems?.items || []).map(item => ({
+            productId: item.productId,
+            unitQuantity: item.unitQuantity,
+            totalQuantity: item.totalQuantity,
+          }));
+          
+          if (poItems.length === 0) {
+            console.log("⚠️ [PO Controller] No items found in PO, skipping stock update");
+          }
+
+          // Update stock for each product in PO items
+          for (const item of poItems) {
+            const { productId, unitQuantity = 0, totalQuantity = null } = item;
+            
+            // Use totalQuantity if available, otherwise use unitQuantity
+            const quantityToAdd = totalQuantity !== null && totalQuantity !== undefined 
+              ? parseFloat(totalQuantity) 
+              : parseFloat(unitQuantity) || 0;
+
+            if (quantityToAdd <= 0) {
+              console.log(`⚠️ [PO Controller] Skipping stock update for product ${productId} - quantity is 0 or invalid`);
+              continue;
+            }
+
+            try {
+              // Find or create stock record for this product
+              let stock = await Stock.findOne({
+                where: { productId },
+                transaction,
+              });
+
+              if (!stock) {
+                // Create new stock record with default values
+                console.log(`📦 [PO Controller] Creating new stock record for product ${productId}`);
+                stock = await Stock.create({
+                  productId,
+                  openingStock: 0,
+                  purchasedQty: quantityToAdd,
+                  soldQty: 0,
+                  currentStock: quantityToAdd,
+                  lastUpdated: new Date(),
+                  createdBy: req.user.username,
+                }, { transaction });
+                console.log(`✅ [PO Controller] Stock record created for product ${productId} with quantity ${quantityToAdd}`);
+              } else {
+                // Update existing stock record
+                console.log(`📦 [PO Controller] Updating existing stock record for product ${productId}`);
+                const oldPurchasedQty = parseFloat(stock.purchasedQty) || 0;
+                const newPurchasedQty = oldPurchasedQty + quantityToAdd;
+                const openingStock = parseFloat(stock.openingStock) || 0;
+                const soldQty = parseFloat(stock.soldQty) || 0;
+                const newCurrentStock = openingStock + newPurchasedQty - soldQty;
+
+                await stock.update({
+                  purchasedQty: newPurchasedQty,
+                  currentStock: newCurrentStock,
+                  lastUpdated: new Date(),
+                  updatedBy: req.user.username,
+                }, { transaction });
+                console.log(`✅ [PO Controller] Stock updated for product ${productId}: purchasedQty=${newPurchasedQty}, currentStock=${newCurrentStock}`);
+              }
+            } catch (stockError) {
+              console.error(`❌ [PO Controller] Error updating stock for product ${productId}:`, stockError);
+              // Continue with other items even if one fails
+            }
+          }
+          
+          console.log("✅ [PO Controller] Stock update completed");
         }
 
         await transaction.commit();

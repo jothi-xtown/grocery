@@ -5,12 +5,13 @@ import vaLogo from "../assets/VA.png";
 import lightLogo from "../assets/hi.jpg";
 import { getUsername, isTownAdmin } from "../service/auth";
 import { MdDashboard } from "react-icons/md";
-import { FaWpforms, FaShoppingCart, FaWarehouse, FaChartBar, FaTags, FaAddressBook, FaUsersCog, FaLayerGroup, FaUserFriends, FaRuler, FaCube } from 'react-icons/fa';
+import { FaWpforms, FaShoppingCart, FaWarehouse, FaChartBar, FaTags, FaAddressBook, FaUsersCog, FaLayerGroup, FaUserFriends, FaRuler, FaCube, FaFileInvoiceDollar } from 'react-icons/fa';
 import { FaShop } from "react-icons/fa6";
 
 const navArray = [
   { icon: <MdDashboard />, label: "Dashboard", path: "/dashboard" },
   { icon: <FaShoppingCart />, label: "Purchase Order", path: "/purchase-order" },
+  { icon: <FaFileInvoiceDollar />, label: "Bill Management", path: "/bill" },
   { icon: <FaWarehouse />, label: "Inventory Management", path: "/inventory-management" },
   {
     icon: <FaChartBar />,
