@@ -68,25 +68,55 @@ const PurchaseOrderComplete = () => {
   const fetchData = async (page = 1, limit = 10) => {
     setLoading(true);
     try {
-      const [posRes, suppliersRes, addressesRes, productsRes] = await Promise.all([
+      // Use Promise.allSettled to fetch dropdowns even if PO endpoint fails
+      const results = await Promise.allSettled([
         api.get(`/api/pos?page=${page}&limit=${limit}`),
         api.get("/api/suppliers?limit=1000"),
         api.get("/api/address?limit=1000"),
         api.get("/api/products?limit=1000"),
       ]);
 
-      setPurchaseOrders(posRes.data.data || []);
-      setSuppliers(suppliersRes.data.data || []);
-      setAddresses(addressesRes.data.data || []);
-      setProducts(productsRes.data.data || []);
+      // Handle PO results
+      if (results[0].status === "fulfilled") {
+        const posRes = results[0].value;
+        setPurchaseOrders(posRes.data.data || []);
+        setPagination(prev => ({
+          ...prev,
+          current: posRes.data.page || page,
+          total: posRes.data.total || 0,
+          pageSize: posRes.data.limit || limit,
+        }));
+      } else {
+        console.error("Error fetching purchase orders:", results[0].reason);
+        setPurchaseOrders([]);
+      }
 
-      // Update pagination state
-      setPagination(prev => ({
-        ...prev,
-        current: posRes.data.page || page,
-        total: posRes.data.total || 0,
-        pageSize: posRes.data.limit || limit,
-      }));
+      // Handle suppliers
+      if (results[1].status === "fulfilled") {
+        const suppliersRes = results[1].value;
+        setSuppliers(suppliersRes.data.data || []);
+      } else {
+        console.error("Error fetching suppliers:", results[1].reason);
+        message.error("Failed to load suppliers");
+      }
+
+      // Handle addresses
+      if (results[2].status === "fulfilled") {
+        const addressesRes = results[2].value;
+        setAddresses(addressesRes.data.data || []);
+      } else {
+        console.error("Error fetching addresses:", results[2].reason);
+        message.error("Failed to load addresses");
+      }
+
+      // Handle products
+      if (results[3].status === "fulfilled") {
+        const productsRes = results[3].value;
+        setProducts(productsRes.data.data || []);
+      } else {
+        console.error("Error fetching products:", results[3].reason);
+        message.error("Failed to load products");
+      }
     } catch (err) {
       console.error("Error fetching data", err);
       message.error(err?.response?.data?.message || "Error fetching data");
@@ -125,7 +155,7 @@ const PurchaseOrderComplete = () => {
       return res.data.refNo;
     } catch (err) {
       message.error("Error generating PO number");
-      return "VA/25-26/001"; // Fallback
+      return "PO/25-26/001"; // Fallback
     }
   };
 
@@ -202,14 +232,16 @@ const PurchaseOrderComplete = () => {
 
       setGstInclude(!!fullPO.gstInclude);
 
-      // Pre-fill PO Items
-      setPoItems((fullPO.poItems || []).map(pi => ({
+      // Pre-fill PO Items - backend returns items as 'items' (not 'poItems')
+      setPoItems((fullPO.items || []).map(pi => ({
         id: pi.id,
-        itemId: pi.itemId,
-        quantity: pi.quantity,
-        rate: pi.rate,
-        total: pi.total ?? (Number(pi.quantity) * Number(pi.rate)),
-        item: pi.item
+        productId: pi.productId,
+        unitQuantity: pi.unitQuantity || 0,
+        unitPrice: pi.unitPrice || 0,
+        rate: pi.unitPrice || 0, // Also include rate for compatibility
+        totalQuantity: pi.totalQuantity || 0,
+        total: pi.total || (Number(pi.unitQuantity || 0) * Number(pi.unitPrice || 0)),
+        product: pi.product || null
       })));
 
       // Pre-fill form fields with distinct addresses
@@ -226,14 +258,16 @@ const PurchaseOrderComplete = () => {
     } catch (e) {
       // Fallback to existing record if detail fetch fails
       setGstInclude(record.gstInclude);
-      setPoItems(record.poItems?.map(pi => ({
+      setPoItems((record.items || []).map(pi => ({
         id: pi.id,
-        itemId: pi.itemId,
-        quantity: pi.quantity,
-        rate: pi.rate,
-        total: pi.total,
-        item: pi.item
-      })) || []);
+        productId: pi.productId,
+        unitQuantity: pi.unitQuantity || 0,
+        unitPrice: pi.unitPrice || 0,
+        rate: pi.unitPrice || 0,
+        totalQuantity: pi.totalQuantity || 0,
+        total: pi.total || 0,
+        product: pi.product || null
+      })));
       createForm.setFieldsValue({
         orderNumber: record.orderNumber,
         orderDate: record.orderDate ? dayjs(record.orderDate) : null,
@@ -261,16 +295,76 @@ const PurchaseOrderComplete = () => {
 
   const markAsReceived = async (record) => {
     try {
-      const res = await api.post(`/api/pos/${record.id}/receive`);
-      const updated = res?.data?.data?.po;
-      message.success('PO received successfully');
-      if (updated) {
-        setPurchaseOrders((prev) => prev.map((po) => po.id === updated.id ? { ...po, status: updated.status, receivedBy: updated.receivedBy, receivedAt: updated.receivedAt, updatedBy: updated.updatedBy } : po));
+      // Fetch full PO details first to get items
+      let fullPO = record;
+      if (!record.items || record.items.length === 0) {
+        try {
+          const fetchRes = await api.get(`/api/pos/${record.id}`);
+          fullPO = fetchRes?.data?.data || record;
+        } catch (fetchErr) {
+          console.error("Error fetching PO details:", fetchErr);
+          // Continue with record data
+        }
       }
+
+      // Prepare items array for update
+      const items = (fullPO.items || []).map(item => ({
+        productId: item.productId,
+        unitPrice: item.unitPrice || item.rate || 0,
+        unitQuantity: item.unitQuantity || 0,
+        totalQuantity: item.totalQuantity || null,
+        total: item.total || 0,
+      }));
+
+      // Format orderDate to YYYY-MM-DD format
+      let formattedOrderDate = fullPO.orderDate;
+      if (fullPO.orderDate) {
+        if (typeof fullPO.orderDate === 'string') {
+          // If it's already a string, try to parse and format it
+          formattedOrderDate = dayjs(fullPO.orderDate).format('YYYY-MM-DD');
+        } else if (fullPO.orderDate instanceof Date) {
+          formattedOrderDate = dayjs(fullPO.orderDate).format('YYYY-MM-DD');
+        } else {
+          // If it's a dayjs object or other format
+          formattedOrderDate = dayjs(fullPO.orderDate).format('YYYY-MM-DD');
+        }
+      }
+
+      console.log("Updating PO status to received:", {
+        id: record.id,
+        status: "received",
+        orderDate: formattedOrderDate,
+        itemsCount: items.length
+      });
+
+      // Update status to "received" using PUT endpoint with items included
+      const res = await api.put(`/api/pos/${record.id}`, {
+        status: "received",
+        orderNumber: fullPO.orderNumber,
+        orderDate: formattedOrderDate,
+        gstInclude: fullPO.gstInclude,
+        gstPercent: fullPO.gstPercent,
+        supplierId: fullPO.supplierId,
+        addressId: fullPO.addressId,
+        shippingAddressId: fullPO.shippingAddressId,
+        notes: fullPO.notes,
+        items: items, // Include items to prevent them from being deleted
+      });
+      
+      console.log("Status update response:", res.data);
+      message.success('PO marked as received successfully');
       fetchData();
     } catch (err) {
-      const msg = err?.response?.data?.message || "Error receiving PO";
-      message.error(msg);
+      console.error("Error marking PO as received:", err);
+      console.error("Error response:", err?.response?.data);
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || (errorData?.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0
+          ? errorData.errors.map(e => `${e.field || "unknown"}: ${e.message}`).join(", ")
+          : null)
+        || err?.message 
+        || "Error marking PO as received";
+      message.error(errorMessage);
     }
   };
 
@@ -296,14 +390,14 @@ const PurchaseOrderComplete = () => {
       unitPrice: unitPrice,
       totalQuantity: totalQuantity,
       total: total,
-      product: selectedProduct
+      product: selectedProduct || null // Ensure product includes unit association
     };
 
     if (editingItemId) {
       setPoItems(poItems.map(item => item.id === editingItemId ? newItem : item));
       message.success("Item updated in PO");
     } else {
-      setPoItems([...poItems, newItem]);
+    setPoItems([...poItems, newItem]);
       message.success("Item added to PO");
     }
     
@@ -357,43 +451,92 @@ const PurchaseOrderComplete = () => {
   };
 
   // View PO details
-  const viewPODetails = (record) => {
-    const supplier = suppliers.find(s => s.id === record.supplierId);
-    const address = addresses.find(a => a.id === record.addressId);
+  const viewPODetails = async (record) => {
+    try {
+      // Fetch full PO details with items
+      const res = await api.get(`/api/pos/${record.id}`);
+      const fullPO = res?.data?.data || record;
+      
+      const supplier = fullPO.supplier || suppliers.find(s => s.id === fullPO.supplierId);
+      const address = fullPO.billingAddress || addresses.find(a => a.id === fullPO.addressId);
+      const shippingAddress = fullPO.shippingAddress || (fullPO.shippingAddressId ? addresses.find(a => a.id === fullPO.shippingAddressId) : null);
 
-    setSelectedPO({
-      ...record,
-      supplier,
-      address,
-    });
-    setShowPODetails(true);
+      setSelectedPO({
+        ...fullPO,
+        supplier,
+        address,
+        shippingAddress,
+      });
+      setShowPODetails(true);
+    } catch (err) {
+      console.error("Error fetching PO details:", err);
+      // Fallback to record from table
+      const supplier = suppliers.find(s => s.id === record.supplierId);
+      const address = addresses.find(a => a.id === record.addressId);
+      setSelectedPO({
+        ...record,
+        supplier,
+        address,
+      });
+      setShowPODetails(true);
+      message.warning("Could not load full PO details, showing partial information");
+    }
   };
 
   // Generate PO PDF - Exact Format Implementation
-  const generatePOPDF = (po) => {
-    const printWindow = window.open("", "_blank");
+  const generatePOPDF = async (po) => {
+    try {
+      // Fetch full PO details with associations to ensure unit data is available
+      let fullPO = po;
+      if (po.id) {
+        // Always fetch full PO to ensure we have complete data with associations
+        try {
+          const res = await api.get(`/api/pos/${po.id}`);
+          fullPO = res?.data?.data || po;
+        } catch (err) {
+          console.error("Error fetching full PO for PDF:", err);
+          // Continue with existing po data
+        }
+      }
 
-    // Get supplier and address details
-    const supplier = po.supplier;
-    const address = po.address;
+      const printWindow = window.open("", "_blank");
+
+      // Get supplier and address details
+      const supplier = fullPO.supplier;
+      const address = fullPO.billingAddress || fullPO.address;
+      const shippingAddress = fullPO.shippingAddress;
 
     // Calculate totals
     let subTotal = 0;
     let totalGST = 0;
     let grandTotal = 0;
 
-    const itemsWithCalculations = (po.poItems || []).map((poItem, index) => {
-      const unitPrice = poItem.rate;
-      const amount = poItem.quantity * unitPrice;
-      const gstAmount = po.gstInclude && po.gstPercent ? (amount * po.gstPercent) / 100 : 0;
+    const itemsWithCalculations = (fullPO.items || []).map((poItem, index) => {
+      const unitPrice = poItem.unitPrice || poItem.rate || 0;
+      const unitQuantity = poItem.unitQuantity || 0;
+      const amount = unitQuantity * unitPrice;
+      const gstAmount = fullPO.gstInclude && fullPO.gstPercent ? (amount * fullPO.gstPercent) / 100 : 0;
       const totalAmount = amount + gstAmount;
 
       subTotal += amount;
       totalGST += gstAmount;
       grandTotal += totalAmount;
 
+      // Ensure product data is preserved with unit association
+      const product = poItem.product || {};
+      // If unit is missing, try to find it from products array
+      let unitData = product.unit;
+      if (!unitData && poItem.productId) {
+        const productFromArray = products.find(p => p.id === poItem.productId);
+        unitData = productFromArray?.unit || null;
+      }
+      
       return {
         ...poItem,
+        product: {
+          ...product,
+          unit: unitData || product.unit || null
+        },
         unitPrice,
         amount,
         gstAmount,
@@ -405,7 +548,7 @@ const PurchaseOrderComplete = () => {
     printWindow.document.write(`
       <html>
         <head>
-          <title>Purchase Order - ${po.orderNumber}</title>
+          <title>Purchase Order - ${fullPO.orderNumber}</title>
           <style>
             body { 
               font-family: Arial, sans-serif; 
@@ -537,8 +680,8 @@ const PurchaseOrderComplete = () => {
 
             <!-- Date and PO Number -->
             <div class="date-po-section">
-              <strong>DATE: ${new Date(po.orderDate).toLocaleDateString('en-GB')}</strong><br>
-              <strong>PO NO: ${po.orderNumber}</strong>
+              <strong>DATE: ${new Date(fullPO.orderDate).toLocaleDateString('en-GB')}</strong><br>
+              <strong>PO NO: ${fullPO.orderNumber}</strong>
             </div>
 
             <!-- To Section -->
@@ -558,12 +701,21 @@ const PurchaseOrderComplete = () => {
               <div class="address-box">
                 <h4>BILLING ADDRESS</h4>
                 <div>${address?.addressBill || 'N/A'}</div>
+                <div>Phone: ${address?.phone || 'N/A'}</div>
+                <div>Email: ${address?.email || 'N/A'}</div>
                 <div>GST IN: ${supplier?.gstNumber || 'N/A'}</div>
               </div>
               <div class="address-box">
                 <h4>SHIPPING ADDRESS [DOOR DELIVERY]</h4>
-                <div>${address?.addressShip || 'N/A'}</div>
-                <div>Contact: ${address?.phone || 'N/A'}</div>
+                ${shippingAddress ? `
+                  <div>${shippingAddress.addressShip || 'N/A'}</div>
+                  <div>Phone: ${shippingAddress.phone || 'N/A'}</div>
+                  <div>Email: ${shippingAddress.email || 'N/A'}</div>
+                ` : `
+                  <div>${address?.addressShip || 'N/A'}</div>
+                  <div>Phone: ${address?.phone || 'N/A'}</div>
+                  <div>Email: ${address?.email || 'N/A'}</div>
+                `}
               </div>
             </div>
 
@@ -580,10 +732,11 @@ const PurchaseOrderComplete = () => {
                 <tr>
                   <th>SN</th>
                   <th>PRODUCT DESCRIPTION</th>
+                  <th>UNIT</th>
                   <th>QTY</th>
                   <th>UNIT PRICE</th>
                   <th>AMOUNT</th>
-                  ${po.gstInclude ? `<th>GST ${po.gstPercent || 0}%</th>` : ''}
+                  ${fullPO.gstInclude ? `<th>GST ${fullPO.gstPercent || 0}%</th>` : ''}
                   <th>TOTAL AMT</th>
                 </tr>
               </thead>
@@ -591,11 +744,12 @@ const PurchaseOrderComplete = () => {
                 ${itemsWithCalculations.map(item => `
                   <tr>
                     <td class="text-center">${item.serialNumber}</td>
-                    <td>${item.item?.itemName || 'N/A'}</td>
-                    <td class="text-center">${item.quantity}</td>
+                    <td>${item.product?.productName || 'N/A'}</td>
+                    <td class="text-center">${item.product?.unit?.unitName || 'N/A'}</td>
+                    <td class="text-center">${item.unitQuantity || 0}</td>
                     <td class="text-right">₹${item.unitPrice.toFixed(2)}</td>
                     <td class="text-right">₹${item.amount.toFixed(2)}</td>
-                    ${po.gstInclude ? `<td class="text-right">₹${item.gstAmount.toFixed(2)}</td>` : ''}
+                    ${fullPO.gstInclude ? `<td class="text-right">₹${item.gstAmount.toFixed(2)}</td>` : ''}
                     <td class="text-right">₹${item.totalAmount.toFixed(2)}</td>
                   </tr>
                 `).join('')}
@@ -606,10 +760,29 @@ const PurchaseOrderComplete = () => {
             <div class="total-section">
               <table>
                 <tr>
-                  <td><strong>TOTAL: ₹${grandTotal.toFixed(2)}</strong></td>
+                  <td><strong>Sub Total:</strong></td>
+                  <td class="text-right"><strong>₹${subTotal.toFixed(2)}</strong></td>
+                </tr>
+                ${fullPO.gstInclude && fullPO.gstPercent ? `
+                <tr>
+                  <td><strong>GST (${fullPO.gstPercent}%):</strong></td>
+                  <td class="text-right"><strong>₹${totalGST.toFixed(2)}</strong></td>
+                </tr>
+                ` : ''}
+                <tr>
+                  <td><strong>Grand Total:</strong></td>
+                  <td class="text-right"><strong>₹${grandTotal.toFixed(2)}</strong></td>
                 </tr>
               </table>
             </div>
+
+            ${fullPO.notes ? `
+            <!-- Notes Section -->
+            <div class="subject-section" style="margin-top: 15px;">
+              <h4>Notes:</h4>
+              <div>${fullPO.notes}</div>
+            </div>
+            ` : ''}
 
             <!-- Footer -->
             <div class="footer-section">
@@ -621,8 +794,12 @@ const PurchaseOrderComplete = () => {
         </body>
       </html>
     `);
-    printWindow.document.close();
-    printWindow.print();
+      printWindow.document.close();
+      printWindow.print();
+    } catch (err) {
+      console.error("Error generating PDF:", err);
+      message.error("Error generating PDF. Please try again.");
+    }
   };
 
 
@@ -759,7 +936,7 @@ const PurchaseOrderComplete = () => {
             size="small"
             type="primary"
             icon={<FilePdfOutlined />}
-            onClick={() => generatePOPDF(record)}
+            onClick={() => generatePOPDF(record).catch(err => console.error("PDF generation error:", err))}
             title="Export PDF"
           >
             PDF
@@ -1063,9 +1240,26 @@ const PurchaseOrderComplete = () => {
               <Table
                 dataSource={poItems}
                 columns={[
-                  { title: "Product Name", dataIndex: ["product", "productName"], key: "productName" },
-                  { title: "Barcode", dataIndex: ["product", "barCode"], key: "barCode" },
-                  { title: "Unit", dataIndex: ["product", "unit", "unitName"], key: "unit", render: (unitName) => unitName || "-" },
+                  { 
+                    title: "Product Name", 
+                    key: "productName",
+                    render: (_, record) => record?.product?.productName || (record?.productId ? products.find(p => p.id === record.productId)?.productName : "-")
+                  },
+                  { 
+                    title: "Barcode", 
+                    key: "barCode",
+                    render: (_, record) => record?.product?.barCode || (record?.productId ? products.find(p => p.id === record.productId)?.barCode : "-")
+                  },
+                  { 
+                    title: "Unit", 
+                    key: "unit", 
+                    render: (_, record) => {
+                      // Try multiple paths to get unit name
+                      const unitName = record?.product?.unit?.unitName 
+                        || (record?.productId ? products.find(p => p.id === record.productId)?.unit?.unitName : null);
+                      return unitName || "-";
+                    }
+                  },
                   { title: "Unit Quantity", dataIndex: "unitQuantity", key: "unitQuantity" },
                   { title: "Unit Price (₹)", dataIndex: "rate", key: "rate", render: (rate) => `₹${parseFloat(rate || 0).toFixed(2)}` },
                   { title: "Total Quantity (pieces)", dataIndex: "totalQuantity", key: "totalQuantity" },
@@ -1082,13 +1276,13 @@ const PurchaseOrderComplete = () => {
                         >
                           Edit
                         </Button>
-                        <Button
-                          size="small"
-                          danger
-                          onClick={() => removeItemFromPO(record.id)}
-                        >
-                          Remove
-                        </Button>
+                      <Button
+                        size="small"
+                        danger
+                        onClick={() => removeItemFromPO(record.id)}
+                      >
+                        Remove
+                      </Button>
                       </Space>
                     ),
                   },
@@ -1169,7 +1363,7 @@ const PurchaseOrderComplete = () => {
             key="pdf"
             type="primary"
             icon={<FilePdfOutlined />}
-            onClick={() => generatePOPDF(selectedPO)}
+            onClick={() => generatePOPDF(selectedPO).catch(err => console.error("PDF generation error:", err))}
           >
             Export PDF
           </Button>,
@@ -1188,7 +1382,11 @@ const PurchaseOrderComplete = () => {
                 <Title level={4}>Order Details</Title>
                 <p><strong>PO Number:</strong> {selectedPO.orderNumber}</p>
                 <p><strong>Date:</strong> {selectedPO.orderDate ? dayjs(selectedPO.orderDate).format('DD/MM/YYYY') : '-'}</p>
+                <p><strong>Status:</strong> {selectedPO.status ? selectedPO.status.charAt(0).toUpperCase() + selectedPO.status.slice(1) : '-'}</p>
                 <p><strong>GST Include:</strong> {selectedPO.gstInclude ? 'Yes' : 'No'}</p>
+                {selectedPO.gstInclude && (
+                  <p><strong>GST Percentage:</strong> {selectedPO.gstPercent || 18}%</p>
+                )}
               </Col>
             </Row>
 
@@ -1199,15 +1397,32 @@ const PurchaseOrderComplete = () => {
             </div>
 
             <Table
-              dataSource={selectedPO.poItems || []}
+              dataSource={selectedPO.items || []}
               columns={[
-                { title: "Product Name", dataIndex: ["product", "productName"], key: "productName" },
-                { title: "Barcode", dataIndex: ["product", "barCode"], key: "barCode" },
-                { title: "Unit", dataIndex: ["product", "unit", "unitName"], key: "unit", render: (unitName) => unitName || "-" },
+                { 
+                  title: "Product Name", 
+                  key: "productName",
+                  render: (_, record) => record?.product?.productName || (record?.productId ? products.find(p => p.id === record.productId)?.productName : "-")
+                },
+                { 
+                  title: "Barcode", 
+                  key: "barCode",
+                  render: (_, record) => record?.product?.barCode || (record?.productId ? products.find(p => p.id === record.productId)?.barCode : "-")
+                },
+                { 
+                  title: "Unit", 
+                  key: "unit", 
+                  render: (_, record) => {
+                    // Try multiple paths to get unit name
+                    const unitName = record?.product?.unit?.unitName 
+                      || (record?.productId ? products.find(p => p.id === record.productId)?.unit?.unitName : null);
+                    return unitName || "-";
+                  }
+                },
                 { title: "Unit Quantity", dataIndex: "unitQuantity", key: "unitQuantity" },
-                { title: "Rate (per unit)", dataIndex: "rate", key: "rate", render: (rate) => `₹${rate?.toFixed(2) || 0}` },
+                { title: "Rate (per unit)", dataIndex: ["unitPrice"], key: "unitPrice", render: (unitPrice) => `₹${(unitPrice || 0).toFixed(2)}` },
                 { title: "Total Quantity", dataIndex: "totalQuantity", key: "totalQuantity" },
-                { title: "Total Price", dataIndex: "total", key: "total", render: (total) => `₹${total?.toFixed(2) || 0}` },
+                { title: "Total Price", dataIndex: "total", key: "total", render: (total) => `₹${(total || 0).toFixed(2)}` },
               ]}
               pagination={false}
               size="small"
@@ -1255,12 +1470,37 @@ const PurchaseOrderComplete = () => {
               <Col span={24}>
                 <Title level={4}>Totals</Title>
                 <div>
-                  <p><strong>Sub Total:</strong> ₹{selectedPO.subTotal?.toFixed(2) || '0.00'}</p>
-                  <p><strong>GST ({selectedPO.gstPercent || 18}%):</strong> ₹{selectedPO.taxTotal?.toFixed(2) || '0.00'}</p>
-                  <p><strong>Grand Total:</strong> ₹{selectedPO.grandTotal?.toFixed(2) || '0.00'}</p>
+                  {(() => {
+                    // Calculate totals from items dynamically
+                    const items = selectedPO.items || [];
+                    const subTotal = items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+                    const gstPercent = selectedPO.gstPercent || 18;
+                    const gstInclude = selectedPO.gstInclude || false;
+                    const taxTotal = gstInclude ? subTotal * (gstPercent / 100) : 0;
+                    const grandTotal = subTotal + taxTotal;
+                    
+                    return (
+                      <>
+                        <p><strong>Sub Total:</strong> ₹{subTotal.toFixed(2)}</p>
+                        {gstInclude && (
+                          <p><strong>GST ({gstPercent}%):</strong> ₹{taxTotal.toFixed(2)}</p>
+                        )}
+                        <p><strong>Grand Total:</strong> ₹{grandTotal.toFixed(2)}</p>
+                      </>
+                    );
+                  })()}
                 </div>
               </Col>
             </Row>
+
+            {selectedPO.notes && (
+              <Row gutter={16}>
+                <Col span={24}>
+                  <Title level={4}>Notes</Title>
+                  <p>{selectedPO.notes}</p>
+                </Col>
+              </Row>
+            )}
           </div>
         )}
       </Modal>
@@ -1325,52 +1565,52 @@ const PurchaseOrderComplete = () => {
                   disabled
                   style={{ backgroundColor: "#f5f5f5" }}
                 />
-              </Form.Item>
+          </Form.Item>
 
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
                     name="unitPrice"
                     label="Price per Unit (₹)"
                     rules={[{ required: true, message: "Please enter unit price" }]}
-                  >
-                    <InputNumber
-                      className="w-full"
+              >
+                <InputNumber
+                  className="w-full"
                       min={0}
                       step={0.01}
                       precision={2}
                       placeholder="Unit price"
-                      onChange={(value) => {
+                  onChange={(value) => {
                         const quantity = itemForm.getFieldValue('unitQuantity') || 0;
                         const total = (quantity * value) || 0;
                         itemForm.setFieldsValue({ total });
                         setPoItemTotal(total);
-                      }}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item
+                  }}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
                     name="unitQuantity"
                     label="Quantity"
                     rules={[{ required: true, message: "Please enter quantity" }]}
-                  >
-                    <InputNumber
-                      className="w-full"
+              >
+                <InputNumber
+                  className="w-full"
                       min={0.1}
                       step={0.1}
                       precision={1}
                       placeholder="Enter quantity"
-                      onChange={(value) => {
+                  onChange={(value) => {
                         const unitPrice = itemForm.getFieldValue('unitPrice') || 0;
                         const total = (value * unitPrice) || 0;
                         itemForm.setFieldsValue({ total });
                         setPoItemTotal(total);
-                      }}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
+                  }}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
               <Form.Item
                 label="Total (₹)"

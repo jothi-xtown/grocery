@@ -99,7 +99,15 @@ const CustomerManagement = () => {
       fetchCustomers();
     } catch (err) {
       console.error("Error saving customer", err);
-      message.error(err?.response?.data?.message || "Error saving customer");
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || errorData?.error 
+        || (errorData?.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0
+          ? errorData.errors.map(e => `${e.field || e.path || "unknown"}: ${e.message}`).join(", ")
+          : null)
+        || err?.message 
+        || "Error saving customer";
+      message.error(errorMessage);
     }
   };
 
@@ -129,7 +137,12 @@ const CustomerManagement = () => {
       fetchCustomers();
     } catch (err) {
       console.error("Error deleting customer", err);
-      message.error(err?.response?.data?.message || "Error deleting customer");
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || errorData?.error 
+        || err?.message 
+        || "Error deleting customer";
+      message.error(errorMessage);
     }
   };
 

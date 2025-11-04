@@ -80,8 +80,18 @@ const BrandManagement = () => {
       setEditingId(null);
       form.resetFields();
       fetchBrands(pagination.current, pagination.pageSize);
+      message.success(editingId ? "Brand updated successfully" : "Brand created successfully");
     } catch (err) {
       console.error("Error saving brand", err);
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || errorData?.error 
+        || (errorData?.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0
+          ? errorData.errors.map(e => `${e.field || e.path || "unknown"}: ${e.message}`).join(", ")
+          : null)
+        || err?.message 
+        || "Error saving brand";
+      message.error(errorMessage);
     }
   };
 
@@ -102,7 +112,12 @@ const BrandManagement = () => {
       fetchBrands(pagination.current, pagination.pageSize);
     } catch (err) {
       console.error("Error deleting brand", err);
-      message.error("Error deleting brand");
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || errorData?.error 
+        || err?.message 
+        || "Error deleting brand";
+      message.error(errorMessage);
     }
   };
 
