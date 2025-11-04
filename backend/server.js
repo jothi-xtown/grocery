@@ -21,6 +21,7 @@ import { supplierRoutes } from "./src/modules/supplier/index.js"
 import { addressRoutes } from "./src/modules/address/index.js"
 import { stockRoutes } from "./src/modules/stock/index.js"
 import { productRoutes } from "./src/modules/product/index.js"
+import { purchaseOrderRoutes } from "./src/modules/purchaseOrder/index.js"
 
 const app = express();
 
@@ -36,23 +37,49 @@ app.use("/api", apiLimiter);
 
 const initializeDatabase = async () => {
   try {
- 
     await connectDB();
+    console.log("✅ Database connection established");
 
-    // Add timeout to detect hanging sync
-    const syncPromise = sequelize.sync({ force: false, alter: false, logging: console.log });
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Database sync timeout after 30 seconds")), 30000)
-    );
+    // Sync database schema with models
+    // alter: true will add missing columns and modify existing ones to match models
+    // This is safe for development but should be disabled in production
+    const isDevelopment = process.env.NODE_ENV !== "production";
     
-    await Promise.race([syncPromise, timeoutPromise]);
+    if (isDevelopment) {
+      console.log("🔄 Syncing database schema (alter mode enabled for development)...");
+      console.log("⏳ This may take a while if there are schema changes...");
+      
+      // Sync without timeout - let it complete naturally
+      // Alter operations can take time depending on table size and changes needed
+      await sequelize.sync({ 
+        force: false, 
+        alter: true, // Enable alter in development only
+        logging: false // Disable verbose logging to speed up
+      });
+      
+      console.log("✅ Database schema synced successfully");
+    } else {
+      console.log("⚠️  Production mode: Database schema sync disabled");
+      // In production, just sync without alter
+      await sequelize.sync({ 
+        force: false, 
+        alter: false,
+        logging: false 
+      });
+    }
     
     await seedAdminUser();
-    console.log("✅ Step 4: Admin user seeded");
+    console.log("✅ Admin user seeded");
 
     console.log("✅ Database initialized successfully with associations");
   } catch (error) {
     console.error("❌ Database initialization failed");
+    console.error("Error:", error.message);
+    if (error.stack) {
+      console.error("Stack:", error.stack);
+    }
+    // Don't exit immediately - let the user see the error
+    console.error("\n💡 Tip: If sync is timing out, check database connection and table locks");
     process.exit(1);
   }
 };
@@ -80,6 +107,7 @@ protectedRoutes.use('/suppliers', supplierRoutes);
 protectedRoutes.use('/address', addressRoutes);
 protectedRoutes.use('/stock', stockRoutes);
 protectedRoutes.use('/products', productRoutes);
+protectedRoutes.use('/pos', purchaseOrderRoutes);
 
 
 // Now apply auth + mount once

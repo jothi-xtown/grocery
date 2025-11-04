@@ -39,14 +39,16 @@ export const createStockSchema = z.object({
   lastUpdated: z
     .string()
     .datetime({ message: "Invalid date format" })
-    .optional(),
+    .optional()
+    .nullable(),
+  // Allow these fields for BaseController
+  createdBy: z.string().optional(),
+  updatedBy: z.string().optional(),
 
 });
 
 // ✅ Update Schema (Partial)
 export const updateStockSchema = createStockSchema.partial();
 
-// ✅ Delete Schema (by ID)
-export const deleteStockSchema = z.object({
-  id: z.string().uuid("Invalid stock ID"),
-});
+// ✅ Delete Schema (empty object, ID comes from params)
+export const deleteStockSchema = z.object({}).passthrough();

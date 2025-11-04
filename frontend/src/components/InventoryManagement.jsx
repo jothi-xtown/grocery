@@ -274,7 +274,7 @@ const { Title, Text } = Typography;
 
 const InventoryManagement = () => {
   const [loading, setLoading] = useState(false);
-  const [stockData, setStockData] = useState([]);
+  const [inventoryData, setInventoryData] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [pagination, setPagination] = useState({
     current: 1,
@@ -291,36 +291,96 @@ const InventoryManagement = () => {
     itemsOutOfStock: 0,
   });
 
-  // ✅ Fetch paginated items
+  // ✅ Fetch products and stock, then merge them
   const fetchPaginatedData = async (page = 1, limit = 10) => {
     setLoading(true);
     try {
-      const res = await api.get(`/api/items?page=${page}&limit=${limit}`);
-      setStockData(res.data.data || []);
+      // Fetch products and stock in parallel
+      const [productsRes, stockRes] = await Promise.all([
+        api.get(`/api/products?page=${page}&limit=${limit}`),
+        api.get("/api/stock?limit=1000"), // Get all stock entries to merge
+      ]);
+
+      const products = productsRes.data.data || [];
+      const stockEntries = stockRes.data.data || [];
+
+      // Create a map of productId -> stock entry
+      const stockMap = {};
+      stockEntries.forEach((stock) => {
+        if (stock.productId) {
+          stockMap[stock.productId] = stock;
+        }
+      });
+
+      // Merge products with stock data
+      const mergedData = products.map((product) => {
+        const stock = stockMap[product.id];
+        return {
+          ...product,
+          stock: stock ? stock.currentStock : 0,
+          openingStock: stock ? stock.openingStock : 0,
+          purchasedQty: stock ? stock.purchasedQty : 0,
+          soldQty: stock ? stock.soldQty : 0,
+          stockId: stock ? stock.id : null,
+          location: stock ? stock.location : null,
+        };
+      });
+
+      setInventoryData(mergedData);
 
       setPagination((prev) => ({
         ...prev,
-        current: res.data.page || page,
-        total: res.data.total || 0,
+        current: productsRes.data.page || page,
+        total: productsRes.data.total || 0,
       }));
     } catch (err) {
       console.error("Error fetching inventory data", err);
-      message.error("Error fetching inventory data");
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || errorData?.error 
+        || err?.message 
+        || "Error fetching inventory data";
+      message.error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ Fetch overall summary (all items without pagination)
+  // ✅ Fetch overall summary (all products without pagination)
   const fetchSummary = async () => {
     try {
-      const res = await api.get("/api/items?limit=1000"); // fetch all data with high limit
-      const items = res.data.data || [];
+      const [productsRes, stockRes] = await Promise.all([
+        api.get("/api/products?limit=1000"), // Fetch all products
+        api.get("/api/stock?limit=1000"), // Fetch all stock entries
+      ]);
 
-      const totalItems = items.length;
-      const totalStock = items.reduce((sum, i) => sum + (i.stock || 0), 0);
-      const itemsInStock = items.filter((i) => (i.stock || 0) > 0).length;
-      const itemsOutOfStock = items.filter((i) => (i.stock || 0) === 0).length;
+      const products = productsRes.data.data || [];
+      const stockEntries = stockRes.data.data || [];
+
+      // Create stock map
+      const stockMap = {};
+      stockEntries.forEach((stock) => {
+        if (stock.productId) {
+          stockMap[stock.productId] = stock;
+        }
+      });
+
+      // Calculate summary
+      const totalItems = products.length;
+      let totalStock = 0;
+      let itemsInStock = 0;
+      let itemsOutOfStock = 0;
+
+      products.forEach((product) => {
+        const stock = stockMap[product.id];
+        const currentStock = stock ? stock.currentStock : 0;
+        totalStock += currentStock;
+        if (currentStock > 0) {
+          itemsInStock++;
+        } else {
+          itemsOutOfStock++;
+        }
+      });
 
       setSummary({
         totalItems,
@@ -345,54 +405,101 @@ const InventoryManagement = () => {
 
   const stockColumns = [
     {
-      title: "Item Name",
-      dataIndex: "itemName",
-      key: "itemName",
+      title: "Barcode",
+      dataIndex: "barCode",
+      key: "barCode",
+      width: 120,
+    },
+    {
+      title: "Product Name",
+      dataIndex: "productName",
+      key: "productName",
       render: (text, record) => (
         <div>
           <Text strong>{text}</Text>
-          <br />
-          <Text type="secondary" style={{ fontSize: "12px" }}>
-            {record.partNumber}
-          </Text>
+          {record.brand?.brandName && (
+            <>
+              <br />
+              <Text type="secondary" style={{ fontSize: "12px" }}>
+                Brand: {record.brand.brandName}
+              </Text>
+            </>
+          )}
         </div>
       ),
+    },
+    {
+      title: "Category",
+      dataIndex: ["category", "categoryName"],
+      key: "category",
+      render: (categoryName) => categoryName || "-",
+    },
+    {
+      title: "Unit",
+      dataIndex: ["unit", "unitName"],
+      key: "unit",
+      render: (unitName) => unitName || "-",
     },
     {
       title: "Stock Available",
       dataIndex: "stock",
       key: "stock",
-      render: (value) => (
-        <Text
-          strong
-          style={{
-            color: value > 0 ? "#52c41a" : "#ff4d4f",
-            fontSize: "16px",
-          }}
-        >
-          {value || 0}
-        </Text>
-      ),
+      render: (value, record) => {
+        const stockValue = value || 0;
+        const lowQty = record.lowQtyIndication || 0;
+        let color = "#52c41a"; // green
+        if (stockValue === 0) {
+          color = "#ff4d4f"; // red
+        } else if (lowQty > 0 && stockValue <= lowQty) {
+          color = "#faad14"; // orange
+        }
+        return (
+          <Text strong style={{ color, fontSize: "16px" }}>
+            {stockValue.toFixed(2)}
+          </Text>
+        );
+      },
     },
     {
-      title: "Unit Price",
-      dataIndex: "purchaseRate",
-      key: "purchaseRate",
-      render: (value) => `₹${value || 0}`,
+      title: "Unit Purchase Price",
+      dataIndex: "purchasePrice",
+      key: "purchasePrice",
+      render: (value) => value ? `₹${parseFloat(value).toFixed(2)}` : "-",
+    },
+    {
+      title: "Unit Sales Price",
+      dataIndex: "salesPrice",
+      key: "salesPrice",
+      render: (value) => value ? `₹${parseFloat(value).toFixed(2)}` : "-",
     },
     {
       title: "GST %",
-      dataIndex: "gst",
       key: "gst",
-      render: (value) => `${value || 0}%`,
+      render: (_, record) => {
+        if (record.hasGST && record.gstPercent) {
+          return `${record.gstPercent}%`;
+        }
+        return "-";
+      },
     },
     {
-      title: "Can Be Fitted",
-      dataIndex: "canBeFitted",
-      key: "canBeFitted",
-      render: (value) => (
-        <Tag color={value ? "blue" : "default"}>{value ? "Yes" : "No"}</Tag>
-      ),
+      title: "Availability",
+      dataIndex: "availability",
+      key: "availability",
+      render: (availability) => {
+        const colors = { Yes: "green", No: "red" };
+        return (
+          <Tag color={colors[availability] || "default"}>
+            {availability || "-"}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: "Location",
+      dataIndex: "location",
+      key: "location",
+      render: (location) => location || "-",
     },
   ];
 
@@ -426,7 +533,7 @@ const InventoryManagement = () => {
           <Card>
             
             <Statistic
-              title="Total Items"
+              title="Total Products"
               prefix={<ToolOutlined style={{ fontSize: '22px', color: '#1890ff', marginRight: '5px', marginTop: "5px" }} />}
               value={summary.totalItems}
               valueStyle={{ color: "#1890ff" }}
@@ -446,7 +553,7 @@ const InventoryManagement = () => {
         <Col xs={24} md={12} lg={6}>
           <Card>
             <Statistic
-              title="Items In Stock"
+              title="Products In Stock"
               value={summary.itemsInStock}
               prefix={<InboxOutlined style={{ fontSize: '22px', color: '#52c41a', marginRight: '5px', marginTop: "5px" }}/>}
               valueStyle={{ color: "#52c41a" }}
@@ -456,7 +563,7 @@ const InventoryManagement = () => {
         <Col xs={24} md={12} lg={6}>
           <Card>
             <Statistic
-              title="Items Out of Stock"
+              title="Products Out of Stock"
               value={summary.itemsOutOfStock}
               prefix={<DropboxOutlined style={{ fontSize: '22px', color: '#ff4d4f', marginRight: '5px', marginTop: "5px" }}/>}
               valueStyle={{ color: "#ff4d4f" }}
@@ -470,10 +577,10 @@ const InventoryManagement = () => {
         <div className="mb-4 flex justify-between items-center">
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <Input.Search
-              placeholder="Search items..."
+              placeholder="Search products by name, barcode, brand, or category..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ maxWidth: 300 }}
+              style={{ maxWidth: 400 }}
             />
             <Button onClick={() => setSearchTerm("")} disabled={!searchTerm}>
               Clear Filters
@@ -483,19 +590,22 @@ const InventoryManagement = () => {
 
         <Table
           columns={stockColumns}
-          dataSource={stockData.filter(
+          dataSource={inventoryData.filter(
             (item) =>
-              item.itemName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              item.partNumber?.toLowerCase().includes(searchTerm.toLowerCase())
+              item.productName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              item.barCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              item.brand?.brandName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              item.category?.categoryName?.toLowerCase().includes(searchTerm.toLowerCase())
           )}
           rowKey="id"
           loading={loading}
           pagination={{
             ...pagination,
             showTotal: (total, range) =>
-              `${range[0]}-${range[1]} of ${total} items`,
+              `${range[0]}-${range[1]} of ${total} products`,
           }}
           onChange={handleTableChange}
+          scroll={{ x: 1200 }}
         />
       </Card>
     </div>

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { StockController } from "./stock.controllers.js";
+import { stockController } from "./stock.controllers.js";
 import { validate } from "../../shared/middlewares/validate.js";
 import { authorize } from "../../shared/middlewares/auth.js";
 import {
@@ -15,21 +15,21 @@ router.post(
   "/",
   authorize("create"),
   validate(createStockSchema),
-  StockController.create
+  stockController.create
 );
 
 // 📋 Get All Stock Entries
-router.get("/", authorize("read"), StockController.getAll);
+router.get("/", authorize("read"), stockController.getAll);
 
 // 🔍 Get Stock by ID
-router.get("/:id", authorize("read"), StockController.getById);
+router.get("/:id", authorize("read"), stockController.getById);
 
 // ✏️ Update Stock Entry
 router.put(
   "/:id",
   authorize("update"),
   validate(updateStockSchema),
-  StockController.update
+  stockController.update
 );
 
 // 🗑️ Soft Delete Stock
@@ -37,13 +37,13 @@ router.delete(
   "/:id",
   authorize("delete"),
   validate(deleteStockSchema),
-  StockController.softDelete
+  stockController.softDelete
 );
 
 // 💀 Hard Delete Stock
-router.delete("/:id/hard", authorize("delete"), StockController.hardDelete);
+router.delete("/:id/hard", authorize("delete"), stockController.hardDelete);
 
 // ♻️ Restore Soft Deleted Stock
-router.post("/:id/restore", authorize("update"), StockController.restore);
+router.post("/:id/restore", authorize("update"), stockController.restore);
 
 export default router;

@@ -11,13 +11,16 @@ export const createProductSchema = z.object({
   purchasePrice: z.number().min(0).optional().nullable(),
   salesPrice: z.number().min(0).optional().nullable(),
   description: z.string().optional().nullable(),
-  availability: z.enum(["Yes", "No"]).optional(),
+  availability: z.enum(["Yes", "No"]).optional().default("Yes"),
   lowQtyIndication: z.number().min(0).optional().nullable(),
   unitQuantity: z.number().min(0).optional().nullable(),
   brandId: z.string().uuid().optional().nullable(),
   categoryId: z.string().uuid().optional().nullable(),
   unitId: z.string().uuid().optional().nullable(),
-});
+  // These are handled by BaseController, but allow them in schema for flexibility
+  createdBy: z.string().optional(),
+  updatedBy: z.string().optional(),
+}).passthrough(); // Allow additional fields that might be sent
 
 export const updateProductSchema = createProductSchema.partial();
 

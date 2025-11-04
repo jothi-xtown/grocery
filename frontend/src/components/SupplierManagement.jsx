@@ -104,7 +104,15 @@ const SupplierManagement = () => {
       fetchSuppliers();
     } catch (err) {
       console.error("Error saving supplier", err);
-      message.error(err.response?.data?.message || "Error saving supplier");
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || errorData?.error 
+        || (errorData?.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0
+          ? errorData.errors.map(e => `${e.field || e.path || "unknown"}: ${e.message}`).join(", ")
+          : null)
+        || err?.message 
+        || "Error saving supplier";
+      message.error(errorMessage);
     }
   };
 
@@ -136,7 +144,12 @@ const SupplierManagement = () => {
       fetchSuppliers();
     } catch (err) {
       console.error("Error deleting supplier", err);
-      message.error("Error deleting supplier");
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || errorData?.error 
+        || err?.message 
+        || "Error deleting supplier";
+      message.error(errorMessage);
     }
   };
 
@@ -193,11 +206,11 @@ const SupplierManagement = () => {
                   <td>${supplier.gstNumber || "-"}</td>
                   <td>${supplier.phone || "-"}</td>
                   <td>${supplier.email || "-"}</td>
-                  <td>₹${(supplier.advancePaid || 0).toFixed(2)}</td>
-                  <td>₹${(supplier.oldBalance || 0).toFixed(2)}</td>
-                  <td>₹${(supplier.creditLimit || 0).toFixed(2)}</td>
-                  <td>₹${(supplier.availableLimit || 0).toFixed(2)}</td>
-                  <td>₹${(supplier.balance || 0).toFixed(2)}</td>
+                  <td>₹${(parseFloat(supplier.advancePaid) || 0).toFixed(2)}</td>
+                  <td>₹${(parseFloat(supplier.oldBalance) || 0).toFixed(2)}</td>
+                  <td>₹${(parseFloat(supplier.creditLimit) || 0).toFixed(2)}</td>
+                  <td>₹${(parseFloat(supplier.availableLimit) || 0).toFixed(2)}</td>
+                  <td>₹${(parseFloat(supplier.balance) || 0).toFixed(2)}</td>
                   <td>${supplier.status}</td>
                 </tr>`
         )
@@ -230,32 +243,32 @@ const SupplierManagement = () => {
       title: "Advance Paid",
       dataIndex: "advancePaid",
       key: "advancePaid",
-      render: (value) => `₹${(value || 0).toFixed(2)}`,
+      render: (value) => `₹${(parseFloat(value) || 0).toFixed(2)}`,
     },
     {
       title: "Old Balance",
       dataIndex: "oldBalance",
       key: "oldBalance",
-      render: (value) => `₹${(value || 0).toFixed(2)}`,
+      render: (value) => `₹${(parseFloat(value) || 0).toFixed(2)}`,
     },
     {
       title: "Credit Limit",
       dataIndex: "creditLimit",
       key: "creditLimit",
-      render: (value) => `₹${(value || 0).toFixed(2)}`,
+      render: (value) => `₹${(parseFloat(value) || 0).toFixed(2)}`,
     },
     {
       title: "Available Limit",
       dataIndex: "availableLimit",
       key: "availableLimit",
-      render: (value) => `₹${(value || 0).toFixed(2)}`,
+      render: (value) => `₹${(parseFloat(value) || 0).toFixed(2)}`,
     },
     {
       title: "Balance",
       dataIndex: "balance",
       key: "balance",
       render: (value) => {
-        const numValue = value || 0;
+        const numValue = parseFloat(value) || 0;
         const color = numValue >= 0 ? "#52c41a" : "#ff4d4f";
         return (
           <span style={{ color, fontWeight: "bold" }}>

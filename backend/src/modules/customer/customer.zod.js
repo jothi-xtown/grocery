@@ -2,21 +2,20 @@ import { z } from "zod";
 
 export const createCustomerSchema = z.object({
   customer_name: z.string().min(1, "Customer name is required"),
-  pincode: z.string().optional(),
-  phone: z.string().min(10, "Phone number must be valid"),
-  old_balance: z.number().nonnegative().optional(),
-  advance: z.number().nonnegative().optional(),
-  credit_limit: z.number().nonnegative().optional(),
-  available_limit: z.number().nonnegative().optional(),
-  balance: z.number().nonnegative().optional(),
-  gst_pan_number: z.string().optional(),
-});
+  pincode: z.string().optional().nullable(),
+  phone: z.string().min(1, "Phone number is required"), // Allow shorter numbers
+  old_balance: z.number().optional().default(0),
+  advance: z.number().optional().default(0),
+  credit_limit: z.number().optional().default(0),
+  available_limit: z.number().optional().default(0),
+  balance: z.number().optional().default(0),
+  gst_pan_number: z.string().optional().nullable(),
+  // Allow these fields for BaseController
+  createdBy: z.string().optional(),
+  updatedBy: z.string().optional(),
+}).passthrough();
 
 
 export const updateCustomerSchema = createCustomerSchema.partial();
 
-// export const deleteCustomerSchema = z.object({});
-
-export const deleteCustomerSchema = z.object({
-  id: z.string().uuid("Invalid ID format"),
-});
+export const deleteCustomerSchema = z.object({}).passthrough(); // Empty object, ID comes from params

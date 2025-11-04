@@ -85,7 +85,15 @@ const CategoryManagement = () => {
       fetchCategories(pagination.current, pagination.pageSize);
     } catch (err) {
       console.error("Error saving category", err);
-      message.error("Error saving category");
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || errorData?.error 
+        || (errorData?.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0
+          ? errorData.errors.map(e => `${e.field || e.path || "unknown"}: ${e.message}`).join(", ")
+          : null)
+        || err?.message 
+        || "Error saving category";
+      message.error(errorMessage);
     }
   };
 
@@ -107,7 +115,12 @@ const CategoryManagement = () => {
       fetchCategories(pagination.current, pagination.pageSize);
     } catch (err) {
       console.error("Error deleting category", err);
-      message.error("Error deleting category");
+      const errorData = err?.response?.data;
+      const errorMessage = errorData?.message 
+        || errorData?.error 
+        || err?.message 
+        || "Error deleting category";
+      message.error(errorMessage);
     }
   };
 
