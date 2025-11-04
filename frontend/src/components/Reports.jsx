@@ -33,13 +33,6 @@ const Reports = () => {
       color: "#fa8c16",
     },
     {
-      title: "Production Report",
-      description: "Daily production metrics and vehicle performance analysis",
-      icon: <BarChartOutlined />,
-      path: "/reports/production",
-      color: "#fa8c16",
-    },
-    {
       title: "Service Report",
       description: "Vehicle and compressor service history and schedules",
       icon: <PrinterOutlined />,
@@ -107,7 +100,7 @@ const Reports = () => {
       <Row gutter={[16, 16]} className="mt-8">
         <Col xs={24} sm={8}>
           <Card className="text-center">
-            <div className="text-3xl font-bold text-blue-600 mb-2">4</div>
+            <div className="text-3xl font-bold text-blue-600 mb-2">3</div>
             <Text type="secondary">Available Reports</Text>
           </Card>
         </Col>

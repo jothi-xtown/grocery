@@ -20,6 +20,8 @@ import { categoryRoutes } from "./src/modules/category/index.js"
 import { supplierRoutes } from "./src/modules/supplier/index.js"
 import { addressRoutes } from "./src/modules/address/index.js"
 import { stockRoutes } from "./src/modules/stock/index.js"
+import { productRoutes } from "./src/modules/product/index.js"
+
 const app = express();
 
 dotenv.config();
@@ -70,13 +72,14 @@ const protectedRoutes = express.Router();
 // Mount all module routes on protected routes
 
 
-protectedRoutes.use('/customer',customerRoute);
-protectedRoutes.use('/brand', brandRoutes);
-protectedRoutes.use('/unit', unitRoutes);
-protectedRoutes.use('/category', categoryRoutes);
-protectedRoutes.use('/supplier', supplierRoutes);
+protectedRoutes.use('/customers', customerRoute);
+protectedRoutes.use('/brands', brandRoutes);
+protectedRoutes.use('/units', unitRoutes);
+protectedRoutes.use('/categories', categoryRoutes);
+protectedRoutes.use('/suppliers', supplierRoutes);
 protectedRoutes.use('/address', addressRoutes);
 protectedRoutes.use('/stock', stockRoutes);
+protectedRoutes.use('/products', productRoutes);
 
 
 // Now apply auth + mount once

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import {
   Button,
   Input,
+  InputNumber,
   Table,
   Tag,
   Space,
@@ -9,6 +10,7 @@ import {
   Select,
   Card,
   Popconfirm,
+  message,
 } from "antd";
 import {
   PlusOutlined,
@@ -77,16 +79,23 @@ const SupplierManagement = () => {
         phone: values.phone?.trim() ? values.phone.trim() : null,
         email: values.email?.trim() ? values.email.trim() : null,
         address: values.address.trim(),
+        advancePaid: values.advancePaid || 0,
+        oldBalance: values.oldBalance || 0,
+        creditLimit: values.creditLimit || 0,
+        availableLimit: values.availableLimit || 0,
+        balance: values.balance || 0,
         status: values.status || "active",
       };
 
       if (editingId) {
         payload.updatedBy = currentUser;
         await api.put(`/api/suppliers/${editingId}`, payload);
+        message.success("Supplier updated successfully");
       } else {
         payload.createdBy = currentUser;
         const res = await api.post("/api/suppliers", payload);
         setSuppliers([res.data.data, ...suppliers]);
+        message.success("Supplier created successfully");
       }
 
       setShowForm(false);
@@ -95,6 +104,7 @@ const SupplierManagement = () => {
       fetchSuppliers();
     } catch (err) {
       console.error("Error saving supplier", err);
+      message.error(err.response?.data?.message || "Error saving supplier");
     }
   };
 
@@ -108,6 +118,11 @@ const SupplierManagement = () => {
       phone: record.phone,
       email: record.email,
       address: record.address,
+      advancePaid: record.advancePaid,
+      oldBalance: record.oldBalance,
+      creditLimit: record.creditLimit,
+      availableLimit: record.availableLimit,
+      balance: record.balance,
       status: record.status,
     });
   };
@@ -116,9 +131,12 @@ const SupplierManagement = () => {
   const handleDelete = async (id) => {
     try {
       await api.delete(`/api/suppliers/${id}/hard`);
+      message.success("Supplier deleted successfully");
       setSuppliers(suppliers.filter((supplier) => supplier.id !== id));
+      fetchSuppliers();
     } catch (err) {
       console.error("Error deleting supplier", err);
+      message.error("Error deleting supplier");
     }
   };
 
@@ -150,10 +168,14 @@ const SupplierManagement = () => {
             <thead>
               <tr>
                 <th>Supplier Name</th>
-                <th>GST Number</th>
+                <th>GST/PAN Number</th>
                 <th>Phone</th>
-                <th>Email</th>
-                <th>Address</th>
+                <th>Email Id</th>
+                <th>Advance Paid</th>
+                <th>Old Balance</th>
+                <th>Credit Limit</th>
+                <th>Available Limit</th>
+                <th>Balance</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -171,7 +193,11 @@ const SupplierManagement = () => {
                   <td>${supplier.gstNumber || "-"}</td>
                   <td>${supplier.phone || "-"}</td>
                   <td>${supplier.email || "-"}</td>
-                  <td>${supplier.address || "-"}</td>
+                  <td>₹${(supplier.advancePaid || 0).toFixed(2)}</td>
+                  <td>₹${(supplier.oldBalance || 0).toFixed(2)}</td>
+                  <td>₹${(supplier.creditLimit || 0).toFixed(2)}</td>
+                  <td>₹${(supplier.availableLimit || 0).toFixed(2)}</td>
+                  <td>₹${(supplier.balance || 0).toFixed(2)}</td>
                   <td>${supplier.status}</td>
                 </tr>`
         )
@@ -197,18 +223,46 @@ const SupplierManagement = () => {
         </div>
       ),
     },
-    { title: "GST Number", dataIndex: "gstNumber", key: "gstNumber" },
+    { title: "GST/PAN Number", dataIndex: "gstNumber", key: "gstNumber" },
     { title: "Phone", dataIndex: "phone", key: "phone" },
-    { title: "Email", dataIndex: "email", key: "email" },
+    { title: "Email Id", dataIndex: "email", key: "email" },
     {
-      title: "Address",
-      dataIndex: "address",
-      key: "address",
-      render: (text) => (
-        <div style={{ maxWidth: 300, wordWrap: "break-word" }}>
-          {text}
-        </div>
-      ),
+      title: "Advance Paid",
+      dataIndex: "advancePaid",
+      key: "advancePaid",
+      render: (value) => `₹${(value || 0).toFixed(2)}`,
+    },
+    {
+      title: "Old Balance",
+      dataIndex: "oldBalance",
+      key: "oldBalance",
+      render: (value) => `₹${(value || 0).toFixed(2)}`,
+    },
+    {
+      title: "Credit Limit",
+      dataIndex: "creditLimit",
+      key: "creditLimit",
+      render: (value) => `₹${(value || 0).toFixed(2)}`,
+    },
+    {
+      title: "Available Limit",
+      dataIndex: "availableLimit",
+      key: "availableLimit",
+      render: (value) => `₹${(value || 0).toFixed(2)}`,
+    },
+    {
+      title: "Balance",
+      dataIndex: "balance",
+      key: "balance",
+      render: (value) => {
+        const numValue = value || 0;
+        const color = numValue >= 0 ? "#52c41a" : "#ff4d4f";
+        return (
+          <span style={{ color, fontWeight: "bold" }}>
+            ₹{numValue.toFixed(2)}
+          </span>
+        );
+      },
     },
     {
       title: "Status",
@@ -401,6 +455,65 @@ const SupplierManagement = () => {
                 ]}
               >
                 <Input.TextArea rows={3} />
+              </Form.Item>
+              <Form.Item
+                name="advancePaid"
+                label="Advance Paid"
+                initialValue={0}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                  placeholder="Enter advance paid amount"
+                />
+              </Form.Item>
+              <Form.Item
+                name="oldBalance"
+                label="Old Balance"
+                initialValue={0}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                  placeholder="Enter old balance"
+                />
+              </Form.Item>
+              <Form.Item
+                name="creditLimit"
+                label="Credit Limit"
+                initialValue={0}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                  placeholder="Enter credit limit"
+                />
+              </Form.Item>
+              <Form.Item
+                name="availableLimit"
+                label="Available Limit"
+                initialValue={0}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                  placeholder="Enter available limit"
+                />
+              </Form.Item>
+              <Form.Item
+                name="balance"
+                label="Balance"
+                initialValue={0}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  precision={2}
+                  placeholder="Enter balance"
+                />
               </Form.Item>
             </div>
             <Form.Item>

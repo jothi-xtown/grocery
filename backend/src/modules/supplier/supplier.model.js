@@ -30,6 +30,26 @@ const Supplier = sequelize.define(
       type: DataTypes.STRING,
       allowNull: false,
     },
+    advancePaid: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0.0,
+    },
+    oldBalance: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0.0,
+    },
+    creditLimit: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0.0,
+    },
+    availableLimit: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0.0,
+    },
+    balance: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0.0,
+    },
     status: {
       type: DataTypes.ENUM("active", "inactive"),
       allowNull: false,

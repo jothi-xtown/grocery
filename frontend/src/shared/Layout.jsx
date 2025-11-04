@@ -1,46 +1,29 @@
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { useState, useEffect } from "react";
-import { BellOutlined, ExclamationCircleOutlined, ToolOutlined, MenuOutlined } from "@ant-design/icons";
-import { Badge, Dropdown, List, Typography, Button, Space } from "antd";
+import { useState } from "react";
+import { MenuOutlined } from "@ant-design/icons";
 import vaLogo from "../assets/VA.png";
 import lightLogo from "../assets/hi.jpg";
-import { getUserRole, getUsername, isTownAdmin } from "../service/auth";
-import api from "../service/api";
+import { getUsername, isTownAdmin } from "../service/auth";
 import { MdDashboard } from "react-icons/md";
-import { TbReport } from "react-icons/tb";
-import { FaUsers, FaList, FaWpforms, FaClipboardList, FaShoppingCart, FaBox, FaCog, FaWarehouse, FaTruck, FaCompressArrowsAlt, FaChartBar, FaTags, FaMapMarkerAlt, FaAddressBook, FaUsersCog } from 'react-icons/fa';
+import { FaWpforms, FaShoppingCart, FaWarehouse, FaChartBar, FaTags, FaAddressBook, FaUsersCog, FaLayerGroup, FaUserFriends, FaRuler, FaCube } from 'react-icons/fa';
 import { FaShop } from "react-icons/fa6";
-
-const { Text } = Typography;
 
 const navArray = [
   { icon: <MdDashboard />, label: "Dashboard", path: "/dashboard" },
-  {
-    icon: <FaUsers />,
-    label: "Employee",
-    children: [
-      { icon: <FaList  />, label: "List", path: "/employee/list" },
-      { icon: <FaUsers />,label: "Attendance", path: "/employee/attendance" },
-    ],
-  },
-  { icon: <FaClipboardList />, label: "Daily Entry", path: "/daily-entry" },
   { icon: <FaShoppingCart />, label: "Purchase Order", path: "/purchase-order" },
-  { icon: <FaBox />, label: "Item Management", path: "/item-management" },
-  { icon: <FaCog />, label: "Service Management", path: "/service-management" },
   { icon: <FaWarehouse />, label: "Inventory Management", path: "/inventory-management" },
-  { icon: <ToolOutlined />, label: "Machine Items", path: "/item-instances" },
-  { icon: <FaTruck />, label: "Machine", path: "/vehicle" },
-  { icon: <FaCompressArrowsAlt />, label: "Compressor", path: "/compressor" },
   {
     icon: <FaChartBar />,
     label: "Reports",
     children: [
       { icon: <FaWpforms />, label: "Item Stock Report", path: "/reports/item-stock" },
-      { icon: <TbReport />, label: "Production Report", path: "/reports/production" },
     ],
   },
   { icon: <FaTags />, label: "Brand", path: "/brand" },
-  { icon: <FaMapMarkerAlt />, label: "Site", path: "/site" },
+  { icon: <FaLayerGroup />, label: "Category", path: "/category" },
+  { icon: <FaUserFriends />, label: "Customer", path: "/customer" },
+  { icon: <FaRuler />, label: "Unit", path: "/unit" },
+  { icon: <FaCube />, label: "Product", path: "/product" },
   { icon: <FaShop />, label: "Supplier", path: "/supplier" },
   { icon: <FaAddressBook />, label: "Address", path: "/address" },
   { icon: <FaUsersCog />, label: "User Management", path: "/user-management", adminOnly: true },
@@ -49,41 +32,9 @@ const navArray = [
 export default function Layout() {
   const [activeMenu, setActiveMenu] = useState(null);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
-  const [serviceAlerts, setServiceAlerts] = useState([]);
-  const [alertsLoading, setAlertsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Fetch urgent service alerts for notifications (RPM difference < 50)
-  const fetchServiceAlerts = async () => {
-    try {
-      setAlertsLoading(true);
-      const response = await api.get("/api/service-alerts/urgent");
-      const alerts = response.data.data || [];
-      setServiceAlerts(alerts);
-      return alerts;
-    } catch (error) {
-      console.error("Error fetching urgent service alerts:", error);
-      setServiceAlerts([]);
-      return [];
-    } finally {
-      setAlertsLoading(false);
-    }
-  };
-
-  // Fetch alerts on component mount and every 5 minutes
-  useEffect(() => {
-    let interval;
-    fetchServiceAlerts()
-      .then(() => {
-        interval = setInterval(fetchServiceAlerts, 5 * 60 * 1000);
-      })
-      .catch(() => {
-        // do nothing; error handled inside
-      });
-    return () => interval && clearInterval(interval);
-  }, []);
 
   function logout() {
     localStorage.removeItem("token");
@@ -143,95 +94,6 @@ export default function Layout() {
         className="dev"
         >Developed by <a href="https://instagram.com/last_autumnleaf/">:)</a> aravindh</span> */}
         <div className="relative pr-6 flex items-center gap-3 text-white/90">
-          {/* Service Alerts Notification */}
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'alerts-header',
-                  label: (
-                    <div className="p-4 border-b border-gray-200">
-                      <div className="flex justify-between items-center">
-                        <Text strong className="text-lg">Service Alerts</Text>
-                        <Badge count={serviceAlerts.length} style={{ backgroundColor: serviceAlerts.some(a => a.priority === 'high') ? '#ff4d4f' : '#faad14' }} />
-                      </div>
-                    </div>
-                  ),
-                  type: 'group'
-                },
-                ...(serviceAlerts.length > 0 ? serviceAlerts.map((alert, index) => ({
-                  key: `alert-${index}`,
-                  label: (
-                    <div className="w-full">
-                      <div className="flex items-start gap-2">
-                        <ExclamationCircleOutlined
-                          className={`mt-1 ${alert.priority === 'high' ? 'text-red-500' :
-                              alert.priority === 'medium' ? 'text-orange-500' :
-                                'text-yellow-500'
-                            }`}
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium">{alert.name}</div>
-                          <div className="text-sm text-gray-600">{alert.message}</div>
-                          <div className="text-xs text-gray-500 mt-1">
-                            Current: {alert.currentRPM} RPM | Next Service: {alert.nextServiceRPM} RPM
-                            {alert.overdue > 0 && (
-                              <span className="text-red-600 font-semibold ml-2">
-                                ({alert.overdue} RPM overdue)
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ),
-                  onClick: () => navigate("/service-management")
-                })) : [{
-                  key: 'no-alerts',
-                  label: (
-                    <div className="p-6 text-center text-gray-500">
-                      <Text>No service alerts at this time</Text>
-                    </div>
-                  )
-                }]),
-                {
-                  key: 'view-management',
-                  label: (
-                    <div className="p-3 border-t border-gray-200 text-center">
-                      <Button
-                        type="link"
-                        onClick={() => navigate("/service-management")}
-                        className="w-full"
-                      >
-                        View Service Management
-                      </Button>
-                    </div>
-                  )
-                }
-              ]
-            }}
-            trigger={["click"]}
-            placement="bottomRight"
-            popupRender={(menu) => (
-              <div className="bg-white rounded-lg shadow-lg max-w-md" style={{ maxHeight: "400px", overflowY: "auto" }}>
-                {menu}
-              </div>
-            )}
-          >
-            <button className="relative hover:bg-white/10 p-2 rounded-full transition-colors">
-              <Badge
-                count={serviceAlerts.length}
-                overflowCount={99}
-                style={{
-                  backgroundColor: serviceAlerts.some(a => a.priority === 'high') ? '#ff4d4f' :
-                    serviceAlerts.some(a => a.priority === 'medium') ? '#faad14' : '#52c41a'
-                }}
-              >
-                <BellOutlined className="text-xl" style={{ color: 'white' }} />
-              </Badge>
-            </button>
-          </Dropdown>
-
           <span className="hidden sm:inline-block text-sm opacity-90">
             {getUsername() || "User"}
           </span>
