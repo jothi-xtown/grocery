@@ -94,9 +94,20 @@ export class BaseCrud {
 
   //  HARD DELETE (permanent)
   async hardDelete(id) {
-    const item = await this.model.findByPk(id, { paranoid: false });
-    if (!item) return null;
-    await item.destroy({ force: true }); // bypas
-    return item;
+    try {
+      console.log(`🔵 [BaseCrud] Hard delete requested for ${this.model.name} ID: ${id}`);
+      const item = await this.model.findByPk(id, { paranoid: false });
+      if (!item) {
+        console.log(`❌ [BaseCrud] ${this.model.name} not found with ID: ${id}`);
+        return null;
+      }
+      console.log(`✅ [BaseCrud] ${this.model.name} found, destroying with force: true`);
+      await item.destroy({ force: true }); // bypass soft delete
+      console.log(`✅ [BaseCrud] ${this.model.name} permanently deleted`);
+      return item;
+    } catch (error) {
+      console.error(`❌ [BaseCrud] Error in hardDelete for ${this.model.name}:`, error);
+      throw error;
+    }
   }
 }

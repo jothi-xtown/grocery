@@ -24,6 +24,8 @@ import { productRoutes } from "./src/modules/product/index.js"
 import { billRoutes } from "./src/modules/bill/index.js"
 import { purchaseOrderRoutes } from "./src/modules/purchaseOrder/index.js"
 import { userRoutes } from "./src/modules/user/index.js"
+import { accountsRoutes } from "./src/modules/accounts/index.js"
+import { branchRoutes } from "./src/modules/branch/index.js"
 
 const app = express();
 
@@ -41,7 +43,6 @@ const initializeDatabase = async () => {
   try {
     await connectDB();
     console.log("✅ Database connection established");
-
     // Sync database schema with models
     // alter: true will add missing columns and modify existing ones to match models
     // This is safe for development but should be disabled in production
@@ -137,9 +138,13 @@ protectedRoutes.use('/products', productRoutes);
 protectedRoutes.use('/bill', billRoutes);
 protectedRoutes.use('/pos', purchaseOrderRoutes);
 protectedRoutes.use('/users', userRoutes);
+protectedRoutes.use('/accounts', accountsRoutes);
+protectedRoutes.use('/branches', branchRoutes);
+
 
 // Now apply auth + mount once
 app.use("/api", authenticate, protectedRoutes);
+
 
 function getLocalIp() {
   const nets = os.networkInterfaces();

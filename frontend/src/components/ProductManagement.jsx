@@ -20,6 +20,7 @@ import {
 } from "@ant-design/icons";
 import api from "../service/api";
 import { canEdit, canDelete, canCreate } from "../service/auth";
+import { capitalizeTableText } from "../utils/textUtils";
 
 const ProductManagement = () => {
   const [form] = Form.useForm();
@@ -31,6 +32,7 @@ const ProductManagement = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [editingRecord, setEditingRecord] = useState(null);
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 10,
@@ -43,42 +45,95 @@ const ProductManagement = () => {
   const [categoryFilter, setCategoryFilter] = useState(null);
   const [availabilityFilter, setAvailabilityFilter] = useState(null);
   const [hasGST, setHasGST] = useState(false);
+  
+  // Inline add form states
+  const [showAddBrand, setShowAddBrand] = useState(false);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [showAddUnit, setShowAddUnit] = useState(false);
+  const [addingBrand, setAddingBrand] = useState(false);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [addingUnit, setAddingUnit] = useState(false);
+  
+  // Inline form values
+  const [newBrandName, setNewBrandName] = useState("");
+  const [newBrandStatus, setNewBrandStatus] = useState("active");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryStatus, setNewCategoryStatus] = useState(true);
+  const [newUnitName, setNewUnitName] = useState("");
+  const [newUnitStatus, setNewUnitStatus] = useState(true);
 
   // Fetch brands, categories, units for dropdowns
+  const fetchDropdowns = async () => {
+    try {
+      const [brandsRes, categoriesRes, unitsRes] = await Promise.all([
+        api.get("/api/brands?page=1&limit=1000").catch(err => {
+          console.error("Error fetching brands", err);
+          return { data: { success: true, data: [] } };
+        }),
+        api.get("/api/categories?page=1&limit=1000").catch(err => {
+          console.error("Error fetching categories", err);
+          return { data: { success: true, data: [] } };
+        }),
+        api.get("/api/units?page=1&limit=1000").catch(err => {
+          console.error("Error fetching units", err);
+          return { data: { success: true, data: [] } };
+        }),
+      ]);
+      
+      // Handle different response formats
+      const getData = (res) => {
+        if (res.data?.success && res.data?.data) {
+          return Array.isArray(res.data.data) ? res.data.data : [];
+        }
+        return [];
+      };
+      
+      setBrands(getData(brandsRes));
+      setCategories(getData(categoriesRes));
+      setUnits(getData(unitsRes));
+    } catch (err) {
+      console.error("Error fetching dropdowns", err);
+      message.error("Failed to fetch dropdown options");
+    }
+  };
+
   useEffect(() => {
-    const fetchDropdowns = async () => {
-      try {
-        const [brandsRes, categoriesRes, unitsRes] = await Promise.all([
-          api.get("/api/brands?page=1&limit=1000"),
-          api.get("/api/categories?page=1&limit=1000"),
-          api.get("/api/units?page=1&limit=1000"),
-        ]);
-        setBrands(brandsRes.data.data || []);
-        setCategories(categoriesRes.data.data || []);
-        setUnits(unitsRes.data.data || []);
-      } catch (err) {
-        console.error("Error fetching dropdowns", err);
-      }
-    };
     fetchDropdowns();
   }, []);
 
   // Fetch products
-  const fetchProducts = async (page = 1, limit = 10) => {
+  const fetchProducts = async (page = null, limit = null) => {
     setLoading(true);
     try {
-      const res = await api.get(`/api/products?page=${page}&limit=${limit}`);
-      setProducts(res.data.data || []);
-
-      // Update pagination state
-      setPagination(prev => ({
-        ...prev,
-        current: res.data.page || page,
-        total: res.data.total || 0,
-        pageSize: res.data.limit || limit,
-      }));
+      // Use current pagination if not specified, with fallback to defaults
+      const currentPage = page ?? pagination.current ?? 1;
+      const currentLimit = limit ?? pagination.pageSize ?? 10;
+      
+      const res = await api.get(`/api/products?page=${currentPage}&limit=${currentLimit}`);
+      
+      if (res.data && res.data.success) {
+        const productsData = res.data.data || [];
+        
+        
+        setProducts(productsData);
+        
+        // Update pagination state
+        setPagination(prev => ({
+          ...prev,
+          current: res.data.page || currentPage,
+          total: res.data.total || 0,
+          pageSize: res.data.limit || currentLimit,
+        }));
+      } else {
+        message.error("Failed to fetch products: Invalid response format");
+        setProducts([]);
+      }
     } catch (err) {
-      console.error("Error fetching products", err);
+      const errorMessage = err?.response?.data?.message 
+        || err?.response?.data?.error 
+        || err?.message 
+        || "Failed to fetch products";
+      message.error(errorMessage);
       setProducts([]);
     } finally {
       setLoading(false);
@@ -101,6 +156,22 @@ const ProductManagement = () => {
       const gstType = values.gstType || "no";
       const hasGSTValue = gstType === "with";
       
+      // Helper function to convert empty strings, undefined, or null to null
+      const toNullIfEmpty = (value) => {
+        if (value === undefined || value === null || value === "") {
+          return null;
+        }
+        // Ensure UUIDs are strings
+        return String(value);
+      };
+      
+      // Extract brandId, categoryId, unitId with proper handling
+      // Get values directly from form to ensure we capture Select component values
+      const formValues = form.getFieldsValue();
+      const brandId = toNullIfEmpty(formValues.brandId || values.brandId);
+      const categoryId = toNullIfEmpty(formValues.categoryId || values.categoryId);
+      const unitId = toNullIfEmpty(formValues.unitId || values.unitId);
+      
       const payload = {
         productName: values.productName?.trim(),
         hsn_sac_code: values.hsn_sac_code?.trim() || null,
@@ -115,35 +186,53 @@ const ProductManagement = () => {
         availability: values.availability || "Yes",
         lowQtyIndication: values.lowQtyIndication || null,
         unitQuantity: values.unitQuantity || null,
-        brandId: values.brandId || null,
-        categoryId: values.categoryId || null,
-        unitId: values.unitId || null,
+        initialStock: values.initialStock || 0,
+        // Explicitly include brandId, categoryId, unitId (can be null)
+        brandId: brandId,
+        categoryId: categoryId,
+        unitId: unitId,
         // barCode is auto-generated by backend hook, don't send it
       };
-
-      // Log payload for debugging
-      console.log("Submitting product payload:", payload);
+      
+      // Verify payload includes the IDs (for debugging - can be removed later)
+      if (!payload.hasOwnProperty('brandId') || !payload.hasOwnProperty('categoryId') || !payload.hasOwnProperty('unitId')) {
+        // This should never happen, but ensures the fields are always included
+      }
       
       if (editingId) {
         payload.updatedBy = currentUser;
-        await api.put(`/api/products/${editingId}`, payload);
-        message.success("Product updated successfully");
+        const updateRes = await api.put(`/api/products/${editingId}`, payload);
+        
+        if (updateRes.data && updateRes.data.success) {
+          message.success("Product updated successfully");
+          setShowForm(false);
+          setEditingId(null);
+          setEditingRecord(null);
+          setHasGST(false);
+          form.resetFields();
+          // Refresh products with current pagination to show updated associations
+          await fetchProducts(pagination.current, pagination.pageSize);
+        } else {
+          message.error(updateRes.data?.message || "Failed to update product");
+        }
       } else {
         payload.createdBy = currentUser;
         const res = await api.post("/api/products", payload);
-        setProducts([res.data.data, ...products]);
-        message.success("Product created successfully");
+        
+        if (res.data && res.data.success) {
+          message.success("Product created successfully");
+          setShowForm(false);
+          setEditingId(null);
+          setEditingRecord(null);
+          setHasGST(false);
+          form.resetFields();
+          // Refresh products - go to first page to show new product with associations
+          await fetchProducts(1, pagination.pageSize);
+        } else {
+          message.error(res.data?.message || "Failed to create product");
+        }
       }
-
-      setShowForm(false);
-      setEditingId(null);
-      setHasGST(false);
-      form.resetFields();
-      fetchProducts();
     } catch (err) {
-      console.error("Error saving product", err);
-      console.error("Error response data:", err?.response?.data);
-      console.error("Error response status:", err?.response?.status);
       
       const errorData = err?.response?.data;
       
@@ -177,46 +266,294 @@ const ProductManagement = () => {
   };
 
   // Handle edit
-  const handleEdit = (record) => {
+  const handleEdit = async (record) => {
     setEditingId(record.id);
+    setEditingRecord(record);
     setShowForm(true);
     const hasGSTValue = record.hasGST === true || record.hasGST === "true";
     setHasGST(hasGSTValue);
-    form.setFieldsValue({
-      productName: record.productName,
-      barCode: record.barCode,
-      hsn_sac_code: record.hsn_sac_code,
+    
+    // Ensure dropdowns are loaded before showing form
+    if (brands.length === 0 || categories.length === 0 || units.length === 0) {
+      await fetchDropdowns();
+    }
+  };
+
+  // Compute initial values for the form when editing
+  const getInitialValues = () => {
+    if (!editingRecord) return undefined;
+    
+    const hasGSTValue = editingRecord.hasGST === true || editingRecord.hasGST === "true";
+    
+    // Extract IDs - handle both direct IDs and nested object IDs
+    const brandId = editingRecord.brandId || editingRecord.brand?.id || null;
+    const categoryId = editingRecord.categoryId || editingRecord.category?.id || null;
+    const unitId = editingRecord.unitId || editingRecord.unit?.id || null;
+    
+    return {
+      productName: editingRecord.productName,
+      barCode: editingRecord.barCode,
+      hsn_sac_code: editingRecord.hsn_sac_code,
       gstType: hasGSTValue ? "with" : "no",
-      gstPercent: record.gstPercent,
-      discountPercent: record.discountPercent,
-      piecePrice: record.piecePrice,
-      pieceSalesPrice: record.pieceSalesPrice,
-      purchasePrice: record.purchasePrice || record.purchasePriceWithGST || record.purchasePriceWithoutGST,
-      salesPrice: record.salesPrice || record.salesPriceWithGST || record.salesPriceWithoutGST,
-      description: record.description,
-      availability: record.availability,
-      lowQtyIndication: record.lowQtyIndication,
-      unitQuantity: record.unitQuantity,
-      brandId: record.brandId,
-      categoryId: record.categoryId,
-      unitId: record.unitId,
-    });
+      gstPercent: editingRecord.gstPercent,
+      discountPercent: editingRecord.discountPercent,
+      piecePrice: editingRecord.piecePrice,
+      pieceSalesPrice: editingRecord.pieceSalesPrice,
+      purchasePrice: editingRecord.purchasePrice || editingRecord.purchasePriceWithGST || editingRecord.purchasePriceWithoutGST,
+      salesPrice: editingRecord.salesPrice || editingRecord.salesPriceWithGST || editingRecord.salesPriceWithoutGST,
+      description: editingRecord.description,
+      availability: editingRecord.availability,
+      lowQtyIndication: editingRecord.lowQtyIndication,
+      unitQuantity: editingRecord.unitQuantity,
+      initialStock: editingRecord.initialStock || 0,
+      brandId: brandId,
+      categoryId: categoryId,
+      unitId: unitId,
+    };
+  };
+
+  // useEffect to set form values when editing and form is shown
+  useEffect(() => {
+    if (editingRecord && showForm && brands.length > 0 && categories.length > 0 && units.length > 0) {
+      const hasGSTValue = editingRecord.hasGST === true || editingRecord.hasGST === "true";
+      
+      // Extract IDs - handle both direct IDs and nested object IDs
+      // Convert to string to ensure type matching with Select.Option values
+      const brandId = editingRecord.brandId || editingRecord.brand?.id || null;
+      const categoryId = editingRecord.categoryId || editingRecord.category?.id || null;
+      const unitId = editingRecord.unitId || editingRecord.unit?.id || null;
+      
+      // Verify IDs exist in dropdowns (important for Select components)
+      const brandExists = brandId ? brands.some(b => String(b.id) === String(brandId)) : false;
+      const categoryExists = categoryId ? categories.some(c => String(c.id) === String(categoryId)) : false;
+      const unitExists = unitId ? units.some(u => String(u.id) === String(unitId)) : false;
+      
+      // Prepare form values
+      const formValues = {
+        productName: editingRecord.productName,
+        barCode: editingRecord.barCode,
+        hsn_sac_code: editingRecord.hsn_sac_code,
+        gstType: hasGSTValue ? "with" : "no",
+        gstPercent: editingRecord.gstPercent,
+        discountPercent: editingRecord.discountPercent,
+        piecePrice: editingRecord.piecePrice,
+        pieceSalesPrice: editingRecord.pieceSalesPrice,
+        purchasePrice: editingRecord.purchasePrice || editingRecord.purchasePriceWithGST || editingRecord.purchasePriceWithoutGST,
+        salesPrice: editingRecord.salesPrice || editingRecord.salesPriceWithGST || editingRecord.salesPriceWithoutGST,
+        description: editingRecord.description,
+        availability: editingRecord.availability,
+        lowQtyIndication: editingRecord.lowQtyIndication,
+        unitQuantity: editingRecord.unitQuantity,
+        initialStock: editingRecord.initialStock || 0,
+        // Only set IDs if they exist in dropdowns
+        brandId: brandExists ? brandId : null,
+        categoryId: categoryExists ? categoryId : null,
+        unitId: unitExists ? unitId : null,
+      };
+      
+      // Set values directly without resetting first to avoid clearing user input
+      // Use requestAnimationFrame and setTimeout to ensure Select components are ready
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          form.setFieldsValue(formValues);
+        }, 100);
+      });
+    } else if (!editingRecord && showForm) {
+      // Reset form when creating new product (only when form is first shown)
+      // Don't reset if user is already filling the form
+      if (!form.getFieldValue('productName')) {
+        form.resetFields();
+      }
+    }
+  }, [editingRecord, showForm, brands, categories, units, form]);
+
+  // Handle inline add - Brand
+  const handleAddBrand = async () => {
+    if (!newBrandName.trim()) {
+      message.error("Brand name is required");
+      return;
+    }
+    setAddingBrand(true);
+    try {
+      const res = await api.post("/api/brands", {
+        brandName: newBrandName.trim(),
+        brandStatus: newBrandStatus,
+      });
+      if (res.data && res.data.success) {
+        const newBrand = res.data.data;
+        message.success("Brand added successfully");
+        
+        // Immediately add the new brand to the state (optimistic update)
+        setBrands(prevBrands => {
+          // Check if brand already exists to avoid duplicates
+          const exists = prevBrands.some(b => b.id === newBrand.id);
+          if (exists) {
+            return prevBrands;
+          }
+          return [...prevBrands, newBrand];
+        });
+        
+        // Also refresh from server to ensure we have latest data
+        await fetchDropdowns();
+        
+        // Auto-select the newly created brand
+        form.setFieldValue("brandId", newBrand.id);
+        
+        // Reset form
+        setNewBrandName("");
+        setNewBrandStatus("active");
+        setShowAddBrand(false);
+      } else {
+        message.error(res.data?.message || "Failed to add brand");
+      }
+    } catch (err) {
+      const errorMsg = err?.response?.data?.message || "Error adding brand";
+      message.error(errorMsg);
+    } finally {
+      setAddingBrand(false);
+    }
+  };
+
+  // Handle inline add - Category
+  const handleAddCategory = async () => {
+    if (!newCategoryName.trim()) {
+      message.error("Category name is required");
+      return;
+    }
+    setAddingCategory(true);
+    try {
+      const res = await api.post("/api/categories", {
+        categoryName: newCategoryName.trim(),
+        categoryStatus: newCategoryStatus,
+      });
+      if (res.data && res.data.success) {
+        const newCategory = res.data.data;
+        message.success("Category added successfully");
+        
+        // Immediately add the new category to the state (optimistic update)
+        setCategories(prevCategories => {
+          // Check if category already exists to avoid duplicates
+          const exists = prevCategories.some(c => c.id === newCategory.id);
+          if (exists) {
+            return prevCategories;
+          }
+          return [...prevCategories, newCategory];
+        });
+        
+        // Also refresh from server to ensure we have latest data
+        await fetchDropdowns();
+        
+        // Auto-select the newly created category
+        form.setFieldValue("categoryId", newCategory.id);
+        
+        // Reset form
+        setNewCategoryName("");
+        setNewCategoryStatus(true);
+        setShowAddCategory(false);
+      } else {
+        message.error(res.data?.message || "Failed to add category");
+      }
+    } catch (err) {
+      const errorMsg = err?.response?.data?.message || "Error adding category";
+      message.error(errorMsg);
+    } finally {
+      setAddingCategory(false);
+    }
+  };
+
+  // Handle inline add - Unit
+  const handleAddUnit = async () => {
+    if (!newUnitName.trim()) {
+      message.error("Unit name is required");
+      return;
+    }
+    setAddingUnit(true);
+    try {
+      const res = await api.post("/api/units", {
+        unitName: newUnitName.trim(),
+        unitStatus: newUnitStatus,
+      });
+      if (res.data && res.data.success) {
+        const newUnit = res.data.data;
+        message.success("Unit added successfully");
+        
+        // Immediately add the new unit to the state (optimistic update)
+        setUnits(prevUnits => {
+          // Check if unit already exists to avoid duplicates
+          const exists = prevUnits.some(u => u.id === newUnit.id);
+          if (exists) {
+            return prevUnits;
+          }
+          return [...prevUnits, newUnit];
+        });
+        
+        // Also refresh from server to ensure we have latest data
+        await fetchDropdowns();
+        
+        // Auto-select the newly created unit
+        form.setFieldValue("unitId", newUnit.id);
+        
+        // Reset form
+        setNewUnitName("");
+        setNewUnitStatus(true);
+        setShowAddUnit(false);
+      } else {
+        message.error(res.data?.message || "Failed to add unit");
+      }
+    } catch (err) {
+      const errorMsg = err?.response?.data?.message || "Error adding unit";
+      message.error(errorMsg);
+    } finally {
+      setAddingUnit(false);
+    }
   };
 
   // Handle hard delete
   const handleDelete = async (id) => {
     try {
-      await api.delete(`/api/products/${id}/hard`);
-      message.success("Product deleted successfully");
-      setProducts(products.filter((product) => product.id !== id));
-      fetchProducts();
+      const res = await api.delete(`/api/products/${id}/hard`);
+      
+      if (res.data && res.data.success) {
+        message.success("Product deleted successfully");
+        // Refresh the product list with current pagination
+        await fetchProducts(pagination.current, pagination.pageSize);
+      } else {
+        const errorMessage = res.data?.message || res.data?.error || "Failed to delete product";
+        console.error(`❌ [Product Frontend] Delete failed:`, errorMessage);
+        
+        // Check if it's a dependency error
+        if (res.data?.dependencies) {
+          const deps = res.data.dependencies;
+          message.error(`${errorMessage} (Stock: ${deps.stock}, Bill Items: ${deps.billItems}, PO Items: ${deps.poItems || 0})`);
+        } else {
+          message.error(errorMessage);
+        }
+      }
     } catch (err) {
-      console.error("Error deleting product", err);
+      console.error(`❌ [Product Frontend] Error deleting product:`, err);
+      console.error(`❌ [Product Frontend] Error response:`, err?.response);
+      console.error(`❌ [Product Frontend] Error response data:`, err?.response?.data);
+      console.error(`❌ [Product Frontend] Error response status:`, err?.response?.status);
+      
       const errorData = err?.response?.data;
-      const errorMessage = errorData?.message 
-        || errorData?.error 
-        || err?.message 
-        || "Error deleting product";
+      let errorMessage = "Error deleting product";
+      
+      if (errorData) {
+        // Check for dependency information
+        if (errorData.dependencies) {
+          const deps = errorData.dependencies;
+          errorMessage = `${errorData.message || errorMessage} (Stock: ${deps.stock}, Bill Items: ${deps.billItems}, PO Items: ${deps.poItems || 0})`;
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        } else if (Array.isArray(errorData.errors) && errorData.errors.length > 0) {
+          errorMessage = errorData.errors.map(e => e.message || e).join(", ");
+        }
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
+      
       message.error(errorMessage);
     }
   };
@@ -299,7 +636,7 @@ const ProductManagement = () => {
       key: "productName",
       render: (title) => (
         <div style={{ minWidth: 180, wordWrap: "break-word" }}>
-          {title}
+          {capitalizeTableText(title, "productName")}
         </div>
       ),
     },
@@ -307,19 +644,31 @@ const ProductManagement = () => {
       title: "Brand",
       dataIndex: ["brand", "brandName"],
       key: "brand",
-      render: (brandName) => brandName || "-",
+      render: (brandName, record) => {
+        // Try multiple ways to access brand name
+        const brand = record?.brand?.brandName || brandName || record?.brandName || null;
+        return brand ? capitalizeTableText(brand, "brandName") : "-";
+      },
     },
     {
       title: "Category",
       dataIndex: ["category", "categoryName"],
       key: "category",
-      render: (categoryName) => categoryName || "-",
+      render: (categoryName, record) => {
+        // Try multiple ways to access category name
+        const category = record?.category?.categoryName || categoryName || record?.categoryName || null;
+        return category ? capitalizeTableText(category, "categoryName") : "-";
+      },
     },
     {
       title: "Unit",
       dataIndex: ["unit", "unitName"],
       key: "unit",
-      render: (unitName) => unitName || "-",
+      render: (unitName, record) => {
+        // Try multiple ways to access unit name
+        const unit = record?.unit?.unitName || unitName || record?.unitName || null;
+        return unit ? capitalizeTableText(unit, "unitName") : "-";
+      },
     },
     {
       title: "Availability",
@@ -424,6 +773,7 @@ const ProductManagement = () => {
               onClick={() => {
                 setShowForm(!showForm);
                 setEditingId(null);
+                setEditingRecord(null);
                 setHasGST(false);
                 form.resetFields();
               }}
@@ -438,7 +788,13 @@ const ProductManagement = () => {
       {/* Add/Edit Form */}
       {showForm && (
         <Card className="mb-6">
-          <Form layout="vertical" form={form} onFinish={handleSubmit}>
+          <Form 
+            layout="vertical" 
+            form={form} 
+            onFinish={handleSubmit}
+            initialValues={getInitialValues()}
+            key={editingId || 'new'}
+          >
             <div className="grid grid-cols-2 gap-4">
               <Form.Item
                 name="productName"
@@ -474,38 +830,275 @@ const ProductManagement = () => {
               <Form.Item
                 name="brandId"
                 label="Brand"
+                getValueFromEvent={(value) => value}
+                normalize={(value) => value || null}
               >
-                <Select placeholder="Select Brand" allowClear>
+                <Select 
+                  placeholder="Select Brand" 
+                  allowClear
+                  onChange={(value) => {
+                    form.setFieldValue("brandId", value || null);
+                  }}
+                >
                   {brands.map((brand) => (
                     <Select.Option key={brand.id} value={brand.id}>
                       {brand.brandName}
                     </Select.Option>
                   ))}
                 </Select>
+                <div style={{ marginTop: "8px" }}>
+                  {!showAddBrand ? (
+                    <Button
+                      size="small"
+                      onClick={() => setShowAddBrand(true)}
+                      style={{ 
+                        backgroundColor: "#722ed1",
+                        borderColor: "#722ed1",
+                        color: "#ffffff",
+                        padding: "4px 8px",
+                        height: "auto",
+                        fontSize: "14px"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = "#531dab";
+                        e.currentTarget.style.borderColor = "#531dab";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "#722ed1";
+                        e.currentTarget.style.borderColor = "#722ed1";
+                      }}
+                    >
+                      + Add Brand
+                    </Button>
+                  ) : (
+                    <div style={{ 
+                      padding: "12px", 
+                      border: "1px solid #d9d9d9", 
+                      borderRadius: "4px",
+                      backgroundColor: "#fafafa",
+                      marginTop: "8px"
+                    }}>
+                      <Space direction="vertical" style={{ width: "100%" }} size="small">
+                        <Input
+                          placeholder="Enter brand name"
+                          value={newBrandName}
+                          onChange={(e) => setNewBrandName(e.target.value)}
+                          onPressEnter={handleAddBrand}
+                        />
+                        <Select
+                          value={newBrandStatus}
+                          onChange={setNewBrandStatus}
+                          style={{ width: "100%" }}
+                        >
+                          <Select.Option value="active">Active</Select.Option>
+                          <Select.Option value="inactive">Inactive</Select.Option>
+                        </Select>
+                        <Space>
+                          <Button
+                            type="primary"
+                            size="small"
+                            onClick={handleAddBrand}
+                            loading={addingBrand}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setShowAddBrand(false);
+                              setNewBrandName("");
+                              setNewBrandStatus("active");
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Space>
+                      </Space>
+                    </div>
+                  )}
+                </div>
               </Form.Item>
               <Form.Item
                 name="categoryId"
                 label="Category"
+                getValueFromEvent={(value) => value}
+                normalize={(value) => value || null}
               >
-                <Select placeholder="Select Category" allowClear>
+                <Select 
+                  placeholder="Select Category" 
+                  allowClear
+                  onChange={(value) => {
+                    form.setFieldValue("categoryId", value || null);
+                  }}
+                >
                   {categories.map((category) => (
                     <Select.Option key={category.id} value={category.id}>
                       {category.categoryName}
                     </Select.Option>
                   ))}
                 </Select>
+                <div style={{ marginTop: "8px" }}>
+                  {!showAddCategory ? (
+                    <Button
+                      size="small"
+                      onClick={() => setShowAddCategory(true)}
+                      style={{ 
+                        backgroundColor: "#722ed1",
+                        borderColor: "#722ed1",
+                        color: "#ffffff",
+                        padding: "4px 8px",
+                        height: "auto",
+                        fontSize: "14px"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = "#531dab";
+                        e.currentTarget.style.borderColor = "#531dab";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "#722ed1";
+                        e.currentTarget.style.borderColor = "#722ed1";
+                      }}
+                    >
+                      + Add Category
+                    </Button>
+                  ) : (
+                    <div style={{ 
+                      padding: "12px", 
+                      border: "1px solid #d9d9d9", 
+                      borderRadius: "4px",
+                      backgroundColor: "#fafafa",
+                      marginTop: "8px"
+                    }}>
+                      <Space direction="vertical" style={{ width: "100%" }} size="small">
+                        <Input
+                          placeholder="Enter category name"
+                          value={newCategoryName}
+                          onChange={(e) => setNewCategoryName(e.target.value)}
+                          onPressEnter={handleAddCategory}
+                        />
+                        <Select
+                          value={newCategoryStatus}
+                          onChange={setNewCategoryStatus}
+                          style={{ width: "100%" }}
+                        >
+                          <Select.Option value={true}>Active</Select.Option>
+                          <Select.Option value={false}>Inactive</Select.Option>
+                        </Select>
+                        <Space>
+                          <Button
+                            type="primary"
+                            size="small"
+                            onClick={handleAddCategory}
+                            loading={addingCategory}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setShowAddCategory(false);
+                              setNewCategoryName("");
+                              setNewCategoryStatus(true);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Space>
+                      </Space>
+                    </div>
+                  )}
+                </div>
               </Form.Item>
               <Form.Item
                 name="unitId"
                 label="Unit"
+                getValueFromEvent={(value) => value}
+                normalize={(value) => value || null}
               >
-                <Select placeholder="Select Unit" allowClear>
+                <Select 
+                  placeholder="Select Unit" 
+                  allowClear
+                  onChange={(value) => {
+                    form.setFieldValue("unitId", value || null);
+                  }}
+                >
                   {units.map((unit) => (
                     <Select.Option key={unit.id} value={unit.id}>
                       {unit.unitName}
                     </Select.Option>
                   ))}
                 </Select>
+                <div style={{ marginTop: "8px" }}>
+                  {!showAddUnit ? (
+                    <Button
+                      size="small"
+                      onClick={() => setShowAddUnit(true)}
+                      style={{ 
+                        backgroundColor: "#722ed1",
+                        borderColor: "#722ed1",
+                        color: "#ffffff",
+                        padding: "4px 8px",
+                        height: "auto",
+                        fontSize: "14px"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = "#531dab";
+                        e.currentTarget.style.borderColor = "#531dab";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "#722ed1";
+                        e.currentTarget.style.borderColor = "#722ed1";
+                      }}
+                    >
+                      + Add Unit
+                    </Button>
+                  ) : (
+                    <div style={{ 
+                      padding: "12px", 
+                      border: "1px solid #d9d9d9", 
+                      borderRadius: "4px",
+                      backgroundColor: "#fafafa",
+                      marginTop: "8px"
+                    }}>
+                      <Space direction="vertical" style={{ width: "100%" }} size="small">
+                        <Input
+                          placeholder="Enter unit name"
+                          value={newUnitName}
+                          onChange={(e) => setNewUnitName(e.target.value)}
+                          onPressEnter={handleAddUnit}
+                        />
+                        <Select
+                          value={newUnitStatus}
+                          onChange={setNewUnitStatus}
+                          style={{ width: "100%" }}
+                        >
+                          <Select.Option value={true}>Active</Select.Option>
+                          <Select.Option value={false}>Inactive</Select.Option>
+                        </Select>
+                        <Space>
+                          <Button
+                            type="primary"
+                            size="small"
+                            onClick={handleAddUnit}
+                            loading={addingUnit}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setShowAddUnit(false);
+                              setNewUnitName("");
+                              setNewUnitStatus(true);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Space>
+                      </Space>
+                    </div>
+                  )}
+                </div>
               </Form.Item>
               <Form.Item
                 name="availability"
@@ -637,6 +1230,18 @@ const ProductManagement = () => {
                   style={{ width: "100%" }}
                   min={0}
                   precision={2}
+                />
+              </Form.Item>
+              <Form.Item
+                name="initialStock"
+                label="Initial Stock"
+                tooltip="Set initial stock quantity when creating product. This will create a stock entry with this opening stock value."
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
+                  precision={2}
+                  placeholder="Enter initial stock quantity"
                 />
               </Form.Item>
               <Form.Item

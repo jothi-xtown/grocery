@@ -76,6 +76,7 @@ import { DataTypes } from "sequelize";
 import sequelize from "../../config/db.js";
 import { commonFields } from "../../shared/models/commonFields.js";
 import Customer from "../customer/customer.model.js";
+import Branch from "../branch/branch.model.js";
 
 const Bill = sequelize.define(
   "Bill",
@@ -98,8 +99,13 @@ const Bill = sequelize.define(
     },
     customerId: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: { model: "customers", key: "id" },
+    },
+    branchId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: { model: "branch", key: "id" },
     },
     billDate: {
       type: DataTypes.DATEONLY,
@@ -131,5 +137,6 @@ const Bill = sequelize.define(
 // Associations
 Customer.hasMany(Bill, { foreignKey: "customerId", as: "bills" });
 Bill.belongsTo(Customer, { foreignKey: "customerId", as: "customer" });
+Bill.belongsTo(Branch, { foreignKey: "branchId", as: "branch" });
 
 export default Bill;

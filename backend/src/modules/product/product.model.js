@@ -138,27 +138,51 @@ const Product = sequelize.define(
               setTimeout(() => reject(new Error("Barcode query timeout")), 5000)
             );
             
-            const lastProduct = await Promise.race([queryPromise, timeoutPromise]);
+            let lastProduct;
+            try {
+              lastProduct = await Promise.race([queryPromise, timeoutPromise]);
+            } catch (raceError) {
+              // If race fails (timeout or query error), use fallback
+              console.warn("⚠️ [Product Hook] Query failed or timed out, using fallback:", raceError.message);
+              lastProduct = null;
+            }
             
             let lastNumber = 0;
             if (lastProduct?.barCode) {
-              // Extract number from barcode (e.g., "PRD0001" -> 1)
-              const match = lastProduct.barCode.match(/PRD(\d+)/);
-              if (match && match[1]) {
-                lastNumber = parseInt(match[1], 10) || 0;
+              try {
+                // Extract number from barcode (e.g., "PRD0001" -> 1)
+                const match = lastProduct.barCode.match(/PRD(\d+)/);
+                if (match && match[1]) {
+                  lastNumber = parseInt(match[1], 10) || 0;
+                }
+              } catch (parseError) {
+                console.warn("⚠️ [Product Hook] Error parsing barcode number, resetting to 0:", parseError.message);
+                lastNumber = 0;
               }
             }
             
-            // Generate new barcode
-            const newNumber = (lastNumber + 1).toString().padStart(4, "0");
-            product.barCode = `PRD${newNumber}`;
-            console.log(`✅ [Product Hook] Generated barcode: ${product.barCode}`);
+            // Generate new barcode - ensure it's always valid
+            try {
+              const newNumber = (lastNumber + 1).toString().padStart(4, "0");
+              product.barCode = `PRD${newNumber}`;
+              console.log(`✅ [Product Hook] Generated barcode: ${product.barCode}`);
+            } catch (generateError) {
+              // Ultimate fallback - use timestamp
+              console.error("⚠️ [Product Hook] Error generating sequential barcode, using timestamp fallback:", generateError.message);
+              const timestamp = Date.now().toString().slice(-6);
+              product.barCode = `PRD${timestamp}`;
+              console.log(`✅ [Product Hook] Timestamp fallback barcode generated: ${product.barCode}`);
+            }
           } catch (error) {
-            // If hook fails, generate a timestamp-based barcode as fallback
-            console.error("⚠️ [Product Hook] Error generating barcode, using fallback:", error.message);
-            const timestamp = Date.now().toString().slice(-6);
-            product.barCode = `PRD${timestamp}`;
-            console.log(`✅ [Product Hook] Fallback barcode generated: ${product.barCode}`);
+            // Final fallback - ensure barcode is always set
+            console.error("⚠️ [Product Hook] Error in barcode generation, using emergency fallback:", error.message);
+            console.error("⚠️ [Product Hook] Error stack:", error.stack);
+            
+            // Use a combination of timestamp and random number to ensure uniqueness
+            const timestamp = Date.now().toString().slice(-8);
+            const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+            product.barCode = `PRD${timestamp}${random}`;
+            console.log(`✅ [Product Hook] Emergency fallback barcode generated: ${product.barCode}`);
           }
         } else {
           console.log(`ℹ️ [Product Hook] Barcode already set: ${product.barCode}`);
@@ -186,24 +210,47 @@ const Product = sequelize.define(
               setTimeout(() => reject(new Error("Barcode query timeout")), 5000)
             );
             
-            const lastProduct = await Promise.race([queryPromise, timeoutPromise]);
+            let lastProduct;
+            try {
+              lastProduct = await Promise.race([queryPromise, timeoutPromise]);
+            } catch (raceError) {
+              console.warn("⚠️ [Product Hook] Query failed or timed out in beforeCreate, using fallback:", raceError.message);
+              lastProduct = null;
+            }
             
             let lastNumber = 0;
             if (lastProduct?.barCode) {
-              const match = lastProduct.barCode.match(/PRD(\d+)/);
-              if (match && match[1]) {
-                lastNumber = parseInt(match[1], 10) || 0;
+              try {
+                const match = lastProduct.barCode.match(/PRD(\d+)/);
+                if (match && match[1]) {
+                  lastNumber = parseInt(match[1], 10) || 0;
+                }
+              } catch (parseError) {
+                console.warn("⚠️ [Product Hook] Error parsing barcode number in beforeCreate, resetting to 0:", parseError.message);
+                lastNumber = 0;
               }
             }
             
-            const newNumber = (lastNumber + 1).toString().padStart(4, "0");
-            product.barCode = `PRD${newNumber}`;
-            console.log(`✅ [Product Hook] Generated barcode in beforeCreate: ${product.barCode}`);
+            try {
+              const newNumber = (lastNumber + 1).toString().padStart(4, "0");
+              product.barCode = `PRD${newNumber}`;
+              console.log(`✅ [Product Hook] Generated barcode in beforeCreate: ${product.barCode}`);
+            } catch (generateError) {
+              console.error("⚠️ [Product Hook] Error generating sequential barcode in beforeCreate, using timestamp fallback:", generateError.message);
+              const timestamp = Date.now().toString().slice(-6);
+              product.barCode = `PRD${timestamp}`;
+              console.log(`✅ [Product Hook] Timestamp fallback barcode generated in beforeCreate: ${product.barCode}`);
+            }
           } catch (error) {
-            console.error("⚠️ [Product Hook] Error generating barcode in beforeCreate, using fallback:", error.message);
-            const timestamp = Date.now().toString().slice(-6);
-            product.barCode = `PRD${timestamp}`;
-            console.log(`✅ [Product Hook] Fallback barcode generated: ${product.barCode}`);
+            // Final fallback - ensure barcode is always set
+            console.error("⚠️ [Product Hook] Error in barcode generation in beforeCreate, using emergency fallback:", error.message);
+            console.error("⚠️ [Product Hook] Error stack:", error.stack);
+            
+            // Use a combination of timestamp and random number to ensure uniqueness
+            const timestamp = Date.now().toString().slice(-8);
+            const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+            product.barCode = `PRD${timestamp}${random}`;
+            console.log(`✅ [Product Hook] Emergency fallback barcode generated in beforeCreate: ${product.barCode}`);
           }
         }
       },

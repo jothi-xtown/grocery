@@ -19,6 +19,7 @@ import {
 } from "@ant-design/icons";
 import api from "../service/api";
 import { canEdit, canDelete, canCreate } from "../service/auth";
+import { capitalizeTableText } from "../utils/textUtils";
 
 const UnitManagement = () => {
   const [form] = Form.useForm();
@@ -183,7 +184,12 @@ const UnitManagement = () => {
 
   // Table columns
   const columns = [
-    { title: "Unit Name", dataIndex: "unitName", key: "unitName" },
+    { 
+      title: "Unit Name", 
+      dataIndex: "unitName", 
+      key: "unitName",
+      render: (name) => capitalizeTableText(name, "unitName")
+    },
     {
       title: "Status",
       dataIndex: "unitStatus",

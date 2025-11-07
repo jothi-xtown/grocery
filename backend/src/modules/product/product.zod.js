@@ -14,6 +14,7 @@ export const createProductSchema = z.object({
   availability: z.enum(["Yes", "No"]).optional().default("Yes"),
   lowQtyIndication: z.number().min(0).optional().nullable(),
   unitQuantity: z.number().min(0).optional().nullable(),
+  initialStock: z.number().min(0).optional().nullable().default(0),
   brandId: z.string().uuid().optional().nullable(),
   categoryId: z.string().uuid().optional().nullable(),
   unitId: z.string().uuid().optional().nullable(),

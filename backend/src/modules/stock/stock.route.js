@@ -21,6 +21,9 @@ router.post(
 // 📋 Get All Stock Entries
 router.get("/", authorize("read"), stockController.getAll);
 
+// 📊 Get Stock Valuation Report
+router.get("/reports/valuation", authorize("read"), stockController.getStockValuationReport);
+
 // 🔍 Get Stock by ID
 router.get("/:id", authorize("read"), stockController.getById);
 

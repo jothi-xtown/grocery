@@ -17,7 +17,6 @@ import {
   Divider,
   message,
   Modal,
-  Tabs,
 } from "antd";
 import {
   PlusOutlined,
@@ -45,11 +44,11 @@ const BillManagement = () => {
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [editingItemId, setEditingItemId] = useState(null);
   const [billItems, setBillItems] = useState([]);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedBill, setSelectedBill] = useState(null);
-  const [activeTab, setActiveTab] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [customerFilter, setCustomerFilter] = useState(null);
   const [pagination, setPagination] = useState({
@@ -87,19 +86,21 @@ const BillManagement = () => {
     }
   };
 
-  // Fetch bills
+  // Fetch bills - only invoices
   const fetchBills = async (page = 1, limit = 10) => {
     setLoading(true);
     try {
       const url = `/api/bill?page=${page}&limit=${limit}`;
       const res = await api.get(url);
-      const billsData = res.data.data || [];
+      const allBills = res.data.data || [];
+      // Filter to show only invoices
+      const invoicesData = allBills.filter((bill) => bill.type === "invoice");
 
-      setBills(billsData);
+      setBills(invoicesData);
       setPagination((prev) => ({
         ...prev,
         current: res.data.page || page,
-        total: res.data.total || 0,
+        total: invoicesData.length,
         pageSize: res.data.limit || limit,
       }));
     } catch (err) {
@@ -110,11 +111,6 @@ const BillManagement = () => {
     }
   };
 
-  // Handle tab change
-  const handleTabChange = (key) => {
-    setActiveTab(key);
-    fetchBills(1, pagination.pageSize);
-  };
 
   // Calculate item total
   const calculateItemTotal = (quantity, unitPrice, discountPercent = 0, taxPercent = 0) => {
@@ -138,7 +134,7 @@ const BillManagement = () => {
     return { totalAmount, grandTotal: totalAmount };
   };
 
-  // Add item to bill
+  // Add or update item in bill
   const handleAddItem = async (values) => {
     try {
       const product = products.find((p) => p.id === values.productId);
@@ -147,8 +143,7 @@ const BillManagement = () => {
         return;
       }
 
-      const newItem = {
-        id: Date.now().toString(),
+      const itemData = {
         productId: values.productId,
         product: product,
         quantity: values.quantity,
@@ -163,12 +158,50 @@ const BillManagement = () => {
         ),
       };
 
-      setBillItems([...billItems, newItem]);
+      if (editingItemId) {
+        // Update existing item
+        setBillItems(billItems.map(item => 
+          item.id === editingItemId ? { ...itemData, id: editingItemId } : item
+        ));
+        setEditingItemId(null);
+        message.success("Item updated successfully");
+      } else {
+        // Add new item
+        const newItem = {
+          ...itemData,
+          id: Date.now().toString(),
+        };
+        setBillItems([...billItems, newItem]);
+        message.success("Item added to bill");
+      }
+
       itemForm.resetFields();
-      message.success("Item added to bill");
     } catch (err) {
       message.error("Error adding item");
     }
+  };
+
+  // Handle edit item
+  const handleEditItem = (item) => {
+    setEditingItemId(item.id);
+    itemForm.setFieldsValue({
+      productId: item.productId,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      discountPercent: item.discountPercent || 0,
+      taxPercent: item.taxPercent || 0,
+    });
+    // Scroll to form if needed
+    const formElement = document.querySelector('.ant-card');
+    if (formElement) {
+      formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  // Handle cancel edit
+  const handleCancelEdit = () => {
+    setEditingItemId(null);
+    itemForm.resetFields();
   };
 
   // Remove item from bill
@@ -209,8 +242,10 @@ const BillManagement = () => {
 
       setShowForm(false);
       setEditingId(null);
+      setEditingItemId(null);
       setBillItems([]);
       form.resetFields();
+      itemForm.resetFields();
       fetchBills(pagination.current, pagination.pageSize);
     } catch (err) {
       console.error("Error saving bill", err);
@@ -224,6 +259,7 @@ const BillManagement = () => {
   // Handle edit
   const handleEdit = async (record) => {
     try {
+      setEditingItemId(null); // Reset item editing when editing bill
       const res = await api.get(`/api/bill/${record.id}`);
       const bill = res.data.data || record;
 
@@ -312,6 +348,94 @@ const BillManagement = () => {
     }
   };
 
+  // PDF Export - Only invoices
+  const exportToPDF = async () => {
+    try {
+      // Fetch all bills with high limit
+      const res = await api.get("/api/bill?page=1&limit=1000");
+      const allBills = res.data.data || [];
+
+      // Filter to only invoices
+      let filteredBills = allBills.filter((bill) => bill.type === "invoice");
+
+      // Filter by search term
+      if (searchTerm) {
+        filteredBills = filteredBills.filter(
+          (bill) =>
+            bill.billNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            bill.customer?.customer_name?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+      }
+
+      // Filter by customer
+      if (customerFilter) {
+        filteredBills = filteredBills.filter((bill) => bill.customerId === customerFilter);
+      }
+
+      const printWindow = window.open("", "_blank");
+      printWindow.document.write(`
+      <html>
+        <head>
+          <title>Invoices Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; font-weight: bold; }
+            .summary { margin-top: 20px; padding: 15px; background-color: #f9f9f9; border-radius: 5px; }
+            .total { font-size: 18px; font-weight: bold; color: #1890ff; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Invoices Report</h1>
+            <p>Generated on: ${new Date().toLocaleDateString()}</p>
+            <p>Total Records: ${filteredBills.length}</p>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th>Invoice No</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>Branch</th>
+                <th>Grand Total</th>
+                <th>Payment Status</th>
+                <th>Due Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredBills.map((bill) => `
+                <tr>
+                  <td>${bill.billNo || "-"}</td>
+                  <td>${bill.billDate ? dayjs(bill.billDate).format("DD/MM/YYYY") : "-"}</td>
+                  <td>${bill.customer?.customer_name || "-"}</td>
+                  <td>${bill.branch?.branchName || "-"}</td>
+                  <td>₹${(bill.grandTotal || 0).toFixed(2)}</td>
+                  <td>${bill.paymentStatus || "unpaid"}</td>
+                  <td>₹${(getDueAmount(bill)).toFixed(2)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+          
+          <div class="summary">
+            <div class="total">Total Invoices: ${filteredBills.length}</div>
+            <p><strong>Total Amount:</strong> ₹${filteredBills.reduce((sum, bill) => sum + (bill.grandTotal || 0), 0).toFixed(2)}</p>
+          </div>
+        </body>
+      </html>
+    `);
+      printWindow.document.close();
+      printWindow.print();
+    } catch (err) {
+      console.error("Error exporting PDF", err);
+      message.error("Error exporting PDF");
+    }
+  };
+
   // Handle delete
   const handleDelete = async (id) => {
     try {
@@ -336,11 +460,10 @@ const BillManagement = () => {
     return (bill.grandTotal || 0) - totalPaid;
   };
 
-  // Filter bills
+  // Filter bills - only invoices
   const filteredBills = bills.filter((bill) => {
-    // Filter by tab type
-    if (activeTab === "quotations" && bill.type !== "quotation") return false;
-    if (activeTab === "invoices" && bill.type !== "invoice") return false;
+    // Only show invoices
+    if (bill.type !== "invoice") return false;
 
     // Filter by search term
     if (searchTerm) {
@@ -383,6 +506,13 @@ const BillManagement = () => {
       dataIndex: ["customer", "customer_name"],
       key: "customer",
       width: 200,
+    },
+    {
+      title: "Branch",
+      dataIndex: ["branch", "branchName"],
+      key: "branch",
+      width: 150,
+      render: (_, record) => record.branch?.branchName || "-",
     },
     {
       title: "Date",
@@ -439,32 +569,9 @@ const BillManagement = () => {
             type="link"
             icon={<EyeOutlined />}
             onClick={() => handleViewBill(record)}
-          >
-            View
-          </Button>
-          {record.type === "quotation" && canEdit() && (
-            <>
-              <Button
-                type="link"
-                icon={<EditOutlined />}
-                onClick={() => handleEdit(record)}
-              >
-                Edit
-              </Button>
-              <Popconfirm
-                title="Convert this quotation to invoice?"
-                description="This will deduct stock and cannot be undone."
-                onConfirm={() => handleConvertToInvoice(record.id)}
-                okText="Yes"
-                cancelText="No"
-              >
-                <Button type="link" icon={<SwapOutlined />}>
-                  Convert
-                </Button>
-              </Popconfirm>
-            </>
-          )}
-          {record.type === "invoice" && canEdit() && (
+            title="View"
+          />
+          {canEdit() && (
             <Button
               type="link"
               icon={<DollarOutlined />}
@@ -472,19 +579,17 @@ const BillManagement = () => {
                 setSelectedBill(record);
                 setShowPaymentModal(true);
               }}
-            >
-              Payment
-            </Button>
+              title="Payment"
+            />
           )}
           {canDelete() && (
             <Popconfirm
-              title="Are you sure you want to delete this bill?"
+              title="Are you sure you want to delete this invoice?"
               onConfirm={() => handleDelete(record.id)}
               okText="Yes"
               cancelText="No"
             >
-              <Button type="link" danger icon={<DeleteOutlined />}>
-                Delete
+              <Button type="link" danger size="medium" icon={<DeleteOutlined />}>
               </Button>
             </Popconfirm>
           )}
@@ -499,7 +604,7 @@ const BillManagement = () => {
       title: "Product",
       dataIndex: "product",
       key: "product",
-      render: (product) => product?.name || "-",
+      render: (product) => product?.productName || product?.name || "-",
     },
     {
       title: "Quantity",
@@ -543,16 +648,31 @@ const BillManagement = () => {
     {
       title: "Actions",
       key: "actions",
-      width: 80,
+      width: 120,
       render: (_, record) => (
-        <Button
-          type="link"
-          danger
-          icon={<DeleteOutlined />}
-          onClick={() => handleRemoveItem(record.id)}
-        >
-          Remove
-        </Button>
+        <Space>
+          <Button
+            type="link"
+            icon={<EditOutlined />}
+            onClick={() => handleEditItem(record)}
+          >
+            Edit
+          </Button>
+          <Button
+            type="link"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => {
+              if (editingItemId === record.id) {
+                setEditingItemId(null);
+                itemForm.resetFields();
+              }
+              handleRemoveItem(record.id);
+            }}
+          >
+            Remove
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -568,65 +688,35 @@ const BillManagement = () => {
             Bill Management
           </Title>
           <Text type="secondary">
-            Manage quotations, proforma invoices, and invoices
+            View and manage invoices
           </Text>
         </div>
-        {canCreate() && (
+        <Space>
           <Button
+            icon={<FilePdfOutlined />}
+            onClick={exportToPDF}
             type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setShowForm(true);
-              setEditingId(null);
-              setBillItems([]);
-              form.resetFields();
-            }}
+            danger
           >
-            Create Quotation
+            Export PDF
           </Button>
-        )}
+        </Space>
       </div>
 
-      {/* Tabs */}
-      <Card>
-        <Tabs
-          activeKey={activeTab}
-          onChange={handleTabChange}
-          items={[
-            {
-              key: "all",
-              label: "All Bills",
-            },
-            {
-              key: "quotations",
-              label: "Quotations",
-            },
-            {
-              key: "invoices",
-              label: "Invoices",
-            },
-          ]}
-        />
-
         {/* Filters */}
-        <div className="mt-4 flex gap-4">
-          <Input
-            placeholder="Search by bill number or customer..."
+      <div style={{ marginBottom: 20, display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <Input.Search
+          placeholder="Search by bill number or customer name"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            style={{ width: 300 }}
-            allowClear
+          style={{ maxWidth: 300 }}
           />
           <Select
-            placeholder="Filter by customer"
+          placeholder="Filter by Customer"
+          allowClear
             value={customerFilter}
-            onChange={setCustomerFilter}
+          onChange={(value) => setCustomerFilter(value)}
             style={{ width: 200 }}
-            allowClear
-            showSearch
-            filterOption={(input, option) =>
-              (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
-            }
           >
             {customers.map((customer) => (
               <Select.Option key={customer.id} value={customer.id}>
@@ -634,8 +724,16 @@ const BillManagement = () => {
               </Select.Option>
             ))}
           </Select>
+        <Button
+          onClick={() => {
+            setSearchTerm('');
+            setCustomerFilter(null);
+          }}
+          disabled={!searchTerm && !customerFilter}
+        >
+          Clear Filters
+        </Button>
         </div>
-      </Card>
 
       {/* Bills Table */}
       <Table
@@ -654,199 +752,6 @@ const BillManagement = () => {
         scroll={{ x: 1200 }}
       />
 
-      {/* Create/Edit Bill Form Modal */}
-      <Modal
-        title={editingId ? "Edit Quotation" : "Create Quotation"}
-        open={showForm}
-        onCancel={() => {
-          setShowForm(false);
-          setEditingId(null);
-          setBillItems([]);
-          form.resetFields();
-        }}
-        footer={null}
-        width={1000}
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleSubmit}
-          initialValues={{ type: "quotation" }}
-        >
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="customerId"
-                label="Customer"
-                rules={[{ required: true, message: "Please select a customer" }]}
-              >
-                <Select
-                  placeholder="Select customer"
-                  showSearch
-                  filterOption={(input, option) =>
-                    (option?.label ?? "")
-                      .toLowerCase()
-                      .includes(input.toLowerCase())
-                  }
-                >
-                  {customers.map((customer) => (
-                    <Select.Option key={customer.id} value={customer.id}>
-                      {customer.customer_name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item name="type" label="Type" hidden>
-                <Select>
-                  <Select.Option value="quotation">Quotation</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          {/* Add Item Form */}
-          <Card title="Add Item" size="small" className="mb-4">
-            <Form
-              form={itemForm}
-              layout="vertical"
-              onFinish={handleAddItem}
-              initialValues={{ discountPercent: 0, taxPercent: 0 }}
-            >
-              <Row gutter={16}>
-                <Col xs={24} sm={8}>
-                  <Form.Item
-                    name="productId"
-                    label="Product"
-                    rules={[
-                      { required: true, message: "Please select a product" },
-                    ]}
-                  >
-                    <Select
-                      placeholder="Select product"
-                      showSearch
-                      filterOption={(input, option) =>
-                        (option?.label ?? "")
-                          .toLowerCase()
-                          .includes(input.toLowerCase())
-                      }
-                    >
-                      {products.map((product) => (
-                        <Select.Option key={product.id} value={product.id}>
-                          {product.name} (Stock: {product.stock || 0})
-                        </Select.Option>
-                      ))}
-                    </Select>
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={4}>
-                  <Form.Item
-                    name="quantity"
-                    label="Quantity"
-                    rules={[
-                      { required: true, message: "Please enter quantity" },
-                      { type: "number", min: 0.01, message: "Quantity must be greater than 0" },
-                    ]}
-                  >
-                    <InputNumber
-                      placeholder="Qty"
-                      style={{ width: "100%" }}
-                      min={0.01}
-                      step={0.01}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={4}>
-                  <Form.Item
-                    name="unitPrice"
-                    label="Unit Price"
-                    rules={[
-                      { required: true, message: "Please enter unit price" },
-                      { type: "number", min: 0, message: "Price must be non-negative" },
-                    ]}
-                  >
-                    <InputNumber
-                      placeholder="Price"
-                      style={{ width: "100%" }}
-                      min={0}
-                      step={0.01}
-                      prefix="₹"
-                    />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={4}>
-                  <Form.Item name="discountPercent" label="Discount %">
-                    <InputNumber
-                      placeholder="Discount"
-                      style={{ width: "100%" }}
-                      min={0}
-                      max={100}
-                      step={0.01}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={4}>
-                  <Form.Item name="taxPercent" label="Tax %">
-                    <InputNumber
-                      placeholder="Tax"
-                      style={{ width: "100%" }}
-                      min={0}
-                      max={100}
-                      step={0.01}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Button type="primary" htmlType="submit" icon={<PlusOutlined />}>
-                Add Item
-              </Button>
-            </Form>
-          </Card>
-
-          {/* Items Table */}
-          <Table
-            columns={itemColumns}
-            dataSource={billItems}
-            rowKey="id"
-            pagination={false}
-            size="small"
-            className="mb-4"
-          />
-
-          {/* Totals */}
-          <div className="text-right mb-4">
-            <Text strong>Total Amount: ₹{totals.totalAmount.toFixed(2)}</Text>
-          </div>
-
-          <Form.Item name="remarks" label="Remarks">
-            <TextArea rows={3} placeholder="Enter remarks (optional)" />
-          </Form.Item>
-
-          <Form.Item>
-            <Space>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={loading}
-                icon={<PlusOutlined />}
-              >
-                {editingId ? "Update Quotation" : "Create Quotation"}
-              </Button>
-              <Button
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingId(null);
-                  setBillItems([]);
-                  form.resetFields();
-                }}
-              >
-                Cancel
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
 
       {/* Payment Modal */}
       <Modal
@@ -980,6 +885,12 @@ const BillManagement = () => {
                   <br />
                 </>
               )}
+              {selectedBill.branch?.branchName && (
+                <>
+                  <br />
+                  <Text strong>Branch:</Text> {selectedBill.branch.branchName}
+                </>
+              )}
             </div>
 
             <Divider />
@@ -988,9 +899,9 @@ const BillManagement = () => {
               columns={[
                 {
                   title: "Product",
-                  dataIndex: ["product", "name"],
+                  dataIndex: ["product", "productName"],
                   key: "product",
-                  render: (_, record) => record?.product?.name || "-",
+                  render: (_, record) => record?.product?.productName || record?.product?.name || "-",
                 },
                 {
                   title: "Quantity",

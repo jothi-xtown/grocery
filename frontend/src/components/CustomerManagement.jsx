@@ -10,6 +10,8 @@ import {
   Popconfirm,
   message,
 } from "antd";
+
+const { TextArea } = Input;
 import {
   PlusOutlined,
   FilePdfOutlined,
@@ -18,6 +20,7 @@ import {
 } from "@ant-design/icons";
 import api from "../service/api";
 import { canEdit, canDelete, canCreate } from "../service/auth";
+import { capitalizeTableText } from "../utils/textUtils";
 
 const CustomerManagement = () => {
   const [form] = Form.useForm();
@@ -69,9 +72,12 @@ const CustomerManagement = () => {
   // Handle form submit (create or update)
   const handleSubmit = async (values) => {
     try {
+      console.log("🔵 [Customer Frontend] Submitting customer:", { editingId, values });
       const currentUser = localStorage.getItem("username") || "Unknown";
       const payload = {
         customer_name: values.customer_name?.trim(),
+        customer_email: values.customer_email?.trim() || null,
+        billing_address: values.billing_address?.trim() || null,
         pincode: values.pincode?.trim() || null,
         phone: values.phone?.trim(),
         old_balance: values.old_balance || 0,
@@ -84,29 +90,64 @@ const CustomerManagement = () => {
 
       if (editingId) {
         payload.updatedBy = currentUser;
-        await api.put(`/api/customers/${editingId}`, payload);
-        message.success("Customer updated successfully");
+        console.log("🔵 [Customer Frontend] Updating customer:", editingId, payload);
+        const res = await api.put(`/api/customers/${editingId}`, payload);
+        console.log("✅ [Customer Frontend] Update response:", res.data);
+        
+        if (res.data && res.data.success) {
+          message.success("Customer updated successfully");
+          setShowForm(false);
+          setEditingId(null);
+          form.resetFields();
+          await fetchCustomers();
+        } else {
+          const errorMessage = res.data?.message || "Failed to update customer";
+          console.error("❌ [Customer Frontend] Update failed:", errorMessage);
+          message.error(errorMessage);
+        }
       } else {
         payload.createdBy = currentUser;
+        console.log("🔵 [Customer Frontend] Creating customer:", payload);
         const res = await api.post("/api/customers", payload);
-        setCustomers([res.data.data, ...customers]);
-        message.success("Customer created successfully");
+        console.log("✅ [Customer Frontend] Create response:", res.data);
+        
+        if (res.data && res.data.success) {
+          message.success("Customer created successfully");
+          setShowForm(false);
+          setEditingId(null);
+          form.resetFields();
+          await fetchCustomers();
+        } else {
+          const errorMessage = res.data?.message || "Failed to create customer";
+          console.error("❌ [Customer Frontend] Create failed:", errorMessage);
+          message.error(errorMessage);
+        }
       }
-
-      setShowForm(false);
-      setEditingId(null);
-      form.resetFields();
-      fetchCustomers();
     } catch (err) {
-      console.error("Error saving customer", err);
+      console.error("❌ [Customer Frontend] Error saving customer:", err);
+      console.error("❌ [Customer Frontend] Error response:", err?.response);
+      console.error("❌ [Customer Frontend] Error response data:", err?.response?.data);
+      console.error("❌ [Customer Frontend] Error response status:", err?.response?.status);
+      
       const errorData = err?.response?.data;
-      const errorMessage = errorData?.message 
-        || errorData?.error 
-        || (errorData?.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0
-          ? errorData.errors.map(e => `${e.field || e.path || "unknown"}: ${e.message}`).join(", ")
-          : null)
-        || err?.message 
-        || "Error saving customer";
+      let errorMessage = "Error saving customer";
+      
+      if (errorData) {
+        if (errorData.message) {
+          errorMessage = errorData.message;
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        } else if (Array.isArray(errorData.errors) && errorData.errors.length > 0) {
+          errorMessage = errorData.errors.map(e => {
+            const field = e.field || e.path || "unknown";
+            const msg = e.message || "Validation error";
+            return `${field}: ${msg}`;
+          }).join(", ");
+        }
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
+      
       message.error(errorMessage);
     }
   };
@@ -117,6 +158,8 @@ const CustomerManagement = () => {
     setShowForm(true);
     form.setFieldsValue({
       customer_name: record.customer_name,
+      customer_email: record.customer_email,
+      billing_address: record.billing_address,
       pincode: record.pincode,
       phone: record.phone,
       old_balance: record.old_balance,
@@ -221,11 +264,21 @@ const CustomerManagement = () => {
       key: "customer_name",
       render: (title) => (
         <div style={{ minWidth: 150, wordWrap: "break-word" }}>
-          {title}
+          {capitalizeTableText(title, "customer_name")}
         </div>
       ),
     },
     { title: "Phone", dataIndex: "phone", key: "phone" },
+    { 
+      title: "Address", 
+      dataIndex: "billing_address", 
+      key: "billing_address",
+      render: (address) => (
+        <div style={{ maxWidth: 250, wordWrap: "break-word" }}>
+          {capitalizeTableText(address, "billing_address") || "-"}
+        </div>
+      ),
+    },
     { title: "Pincode", dataIndex: "pincode", key: "pincode" },
     { title: "GST/PAN", dataIndex: "gst_pan_number", key: "gst_pan_number" },
     {
@@ -356,17 +409,43 @@ const CustomerManagement = () => {
                 <Input />
               </Form.Item>
               <Form.Item
+                name="customer_email"
+                label="Email"
+                rules={[
+                  { type: "email", message: "Please enter a valid email address" },
+                ]}
+              >
+                <Input placeholder="Enter email address (optional)" />
+              </Form.Item>
+            </div>
+            <Form.Item
+              name="billing_address"
+              label="Address"
+            >
+              <TextArea rows={3} placeholder="Enter address (optional)" />
+            </Form.Item>
+            <div className="grid grid-cols-2 gap-4">
+              <Form.Item
                 name="phone"
                 label="Phone"
                 rules={[
-                  { required: true, message: "Phone number is required" },
-                  { pattern: /^\d{10,11}$/, message: "Phone number must be 10 digits" }
+                  {
+                    pattern: /^\d{10,11}$/,
+                    message: "Phone number must be 10 digits (mobile) or 11 digits (landline)"
+                  }
                 ]}
               >
                 <Input
+                  placeholder="Optional (10 or 11 digits)"
                   maxLength={11}
                   onKeyPress={(e) => {
-                    if (!/[0-9]/.test(e.key)) {
+                    if (!/[0-9]/.test(e.key) && e.key !== "Backspace" && e.key !== "Delete" && e.key !== "Tab" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") {
+                      e.preventDefault();
+                    }
+                  }}
+                  onPaste={(e) => {
+                    const pasteData = e.clipboardData.getData("Text");
+                    if (!/^\d*$/.test(pasteData)) {
                       e.preventDefault();
                     }
                   }}

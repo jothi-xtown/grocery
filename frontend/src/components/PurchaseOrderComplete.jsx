@@ -26,6 +26,7 @@ import {
 } from "@ant-design/icons";
 import api from "../service/api";
 import { canEdit, canDelete, canCreate } from "../service/auth";
+import { capitalizeTableText } from "../utils/textUtils";
 import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
@@ -63,6 +64,7 @@ const PurchaseOrderComplete = () => {
   });
 
   const [statusFilter, setStatusFilter] = useState(null);
+  const [selectedSupplierAddress, setSelectedSupplierAddress] = useState(null);
 
   // Fetch data
   const fetchData = async (page = 1, limit = 10) => {
@@ -112,10 +114,21 @@ const PurchaseOrderComplete = () => {
       // Handle products
       if (results[3].status === "fulfilled") {
         const productsRes = results[3].value;
-        setProducts(productsRes.data.data || []);
+        
+        if (productsRes.data && productsRes.data.success) {
+          const productsData = productsRes.data.data || [];
+          setProducts(productsData);
+        } else {
+          message.error("Failed to fetch products: Invalid response format");
+          setProducts([]);
+        }
       } else {
-        console.error("Error fetching products:", results[3].reason);
-        message.error("Failed to load products");
+        const errorMessage = results[3].reason?.response?.data?.message 
+          || results[3].reason?.response?.data?.error 
+          || results[3].reason?.message 
+          || "Failed to load products";
+        message.error(errorMessage);
+        setProducts([]);
       }
     } catch (err) {
       console.error("Error fetching data", err);
@@ -161,47 +174,113 @@ const PurchaseOrderComplete = () => {
 
   // Handle form submit (create or update)
   const handleSubmit = async (values) => {
+    // Validate required fields
+    if (!values.orderDate) {
+      message.error("Please select an order date");
+      return;
+    }
+
+    if (!values.supplierId) {
+      message.error("Please select a supplier");
+      return;
+    }
+
+    if (poItems.length === 0) {
+      message.error("Please add at least one item to the purchase order");
+      return;
+    }
+
+    // Validate items
+    const invalidItems = poItems.filter(item => !item.productId || !item.unitQuantity || item.unitQuantity <= 0);
+    if (invalidItems.length > 0) {
+      message.error("Please ensure all items have a valid product and quantity");
+      return;
+    }
+
     try {
       const payload = {
-        orderNumber: values.orderNumber,
+        // Don't include orderNumber - let backend auto-generate it
         orderDate: values.orderDate ? values.orderDate.format("YYYY-MM-DD") : null,
-        gstInclude: values.gstInclude,
+        gstInclude: values.gstInclude || false,
         gstPercent: values.gstInclude ? (values.gstPercent || 18.0) : 0,
         supplierId: values.supplierId,
-        addressId: values.addressId,
-        shippingAddressId: values.shippingAddressId,
-        notes: values.notes,
-        createdBy: localStorage.getItem("username"),
-        updatedBy: localStorage.getItem("username"),
+        // Don't include addressId and shippingAddressId if null - using supplier address instead
+        notes: values.notes || null,
         items: poItems.map(item => ({
           productId: item.productId,
-          unitQuantity: item.unitQuantity,
-          rate: item.rate,
-          totalQuantity: item.totalQuantity,
-          total: item.total
+          unitQuantity: item.unitQuantity || 0,
+          rate: item.rate || item.unitPrice || 0,
+          totalQuantity: item.totalQuantity || null,
+          total: item.total || 0
         }))
       };
-
+      
+      // Only include orderNumber when UPDATING (editingId exists)
+      // For new POs, never include orderNumber - let backend auto-generate
+      if (editingId && values.orderNumber && values.orderNumber.trim()) {
+        payload.orderNumber = values.orderNumber.trim();
+      }
+      
+      // Only include addressId and shippingAddressId if they have values
+      // Since we're using supplier address, we omit these fields
 
       if (editingId) {
-        await api.put(`/api/pos/${editingId}`, payload);
-        message.success("Purchase order updated successfully");
-
+        const res = await api.put(`/api/pos/${editingId}`, payload);
+        
+        if (res.data && res.data.success) {
+          message.success("Purchase order updated successfully");
+          setShowForm(false);
+          setShowCreateForm(false);
+          setEditingId(null);
+          setPoItems([]);
+          setSelectedSupplierAddress(null);
+          form.resetFields();
+          createForm.resetFields();
+          await fetchData();
+        } else {
+          const errorMessage = res.data?.message || "Failed to update purchase order";
+          message.error(errorMessage);
+        }
       } else {
         const res = await api.post("/api/pos", payload);
-        setPurchaseOrders([res.data.data, ...purchaseOrders]);
-        message.success("Purchase order created successfully");
+        
+        if (res.data && res.data.success) {
+          message.success("Purchase order created successfully");
+          setShowForm(false);
+          setShowCreateForm(false);
+          setEditingId(null);
+          setPoItems([]);
+          setSelectedSupplierAddress(null);
+          form.resetFields();
+          createForm.resetFields();
+          await fetchData();
+        } else {
+          const errorMessage = res.data?.message || "Failed to create purchase order";
+          message.error(errorMessage);
+        }
       }
-
-      setShowForm(false);
-      setShowCreateForm(false);
-      setEditingId(null);
-      setPoItems([]);
-      form.resetFields();
-      createForm.resetFields();
-      fetchData();
     } catch (err) {
-      message.error("Error saving purchase order");
+      
+      const errorData = err?.response?.data;
+      let errorMessage = "Error saving purchase order";
+      
+      if (errorData) {
+        if (errorData.message) {
+          errorMessage = errorData.message;
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        } else if (Array.isArray(errorData.errors) && errorData.errors.length > 0) {
+          errorMessage = errorData.errors.map(e => {
+            const field = e.field || e.path || "unknown";
+            const msg = e.message || "Validation error";
+            return `${field}: ${msg}`;
+          }).join(", ");
+        }
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
+      
+      message.error(errorMessage);
     }
   };
 
@@ -255,6 +334,12 @@ const PurchaseOrderComplete = () => {
         shippingAddressId: fullPO.shippingAddressId || undefined,
         notes: fullPO.notes,
       });
+      
+      // Set supplier address if supplier is loaded
+      const supplier = fullPO.supplier || suppliers.find(s => s.id === fullPO.supplierId);
+      if (supplier && supplier.address) {
+        setSelectedSupplierAddress(supplier.address);
+      }
     } catch (e) {
       // Fallback to existing record if detail fetch fails
       setGstInclude(record.gstInclude);
@@ -278,6 +363,12 @@ const PurchaseOrderComplete = () => {
         shippingAddressId: record.shippingAddressId || undefined,
         notes: record.notes,
       });
+      
+      // Set supplier address in fallback
+      const supplier = record.supplier || suppliers.find(s => s.id === record.supplierId);
+      if (supplier && supplier.address) {
+        setSelectedSupplierAddress(supplier.address);
+      }
     }
   };
 
@@ -330,30 +421,52 @@ const PurchaseOrderComplete = () => {
         }
       }
 
-      console.log("Updating PO status to received:", {
+      console.log("🔵 [PO Frontend] Updating PO status to received:", {
         id: record.id,
         status: "received",
         orderDate: formattedOrderDate,
-        itemsCount: items.length
+        itemsCount: items.length,
+        fullPO: fullPO
       });
 
       // Update status to "received" using PUT endpoint with items included
-      const res = await api.put(`/api/pos/${record.id}`, {
+      const payload = {
         status: "received",
         orderNumber: fullPO.orderNumber,
         orderDate: formattedOrderDate,
-        gstInclude: fullPO.gstInclude,
-        gstPercent: fullPO.gstPercent,
+        gstInclude: fullPO.gstInclude || false,
+        gstPercent: fullPO.gstPercent || 0,
         supplierId: fullPO.supplierId,
-        addressId: fullPO.addressId,
-        shippingAddressId: fullPO.shippingAddressId,
-        notes: fullPO.notes,
+        notes: fullPO.notes || null,
         items: items, // Include items to prevent them from being deleted
-      });
+      };
+
+      // Only include address fields if they exist
+      if (fullPO.addressId) {
+        payload.addressId = fullPO.addressId;
+      }
+      if (fullPO.shippingAddressId) {
+        payload.shippingAddressId = fullPO.shippingAddressId;
+      }
+
+      console.log("🔵 [PO Frontend] Update payload:", payload);
+
+      const res = await api.put(`/api/pos/${record.id}`, payload);
       
-      console.log("Status update response:", res.data);
-      message.success('PO marked as received successfully');
-      fetchData();
+      console.log("✅ [PO Frontend] Status update response:", res.data);
+      console.log("✅ [PO Frontend] Response success:", res.data?.success);
+      console.log("✅ [PO Frontend] Response data:", res.data?.data);
+      
+      // Check if the update was successful
+      if (res.data && res.data.success) {
+        message.success('PO marked as received successfully');
+        // Force refresh by fetching current page
+        await fetchData(pagination.current, pagination.pageSize);
+      } else {
+        const errorMessage = res.data?.message || "Failed to update PO status";
+        console.error("❌ [PO Frontend] Update failed:", errorMessage);
+        message.error(errorMessage);
+      }
     } catch (err) {
       console.error("Error marking PO as received:", err);
       console.error("Error response:", err?.response?.data);
@@ -506,6 +619,28 @@ const PurchaseOrderComplete = () => {
       const address = fullPO.billingAddress || fullPO.address;
       const shippingAddress = fullPO.shippingAddress;
 
+      // Ensure gstInclude is properly handled (convert string "true"/"false" to boolean, handle null/undefined)
+      // Handle multiple possible formats: true, "true", 1, "1", false, "false", 0, "0", null, undefined
+      let gstInclude = false;
+      if (fullPO.gstInclude !== null && fullPO.gstInclude !== undefined) {
+        if (typeof fullPO.gstInclude === 'boolean') {
+          gstInclude = fullPO.gstInclude;
+        } else if (typeof fullPO.gstInclude === 'string') {
+          gstInclude = fullPO.gstInclude.toLowerCase() === 'true' || fullPO.gstInclude === '1';
+        } else if (typeof fullPO.gstInclude === 'number') {
+          gstInclude = fullPO.gstInclude === 1;
+        }
+      }
+      const gstPercent = fullPO.gstPercent || 0;
+      
+      // Convert to explicit string values for template
+      const gstIncludeText = gstInclude ? 'Yes' : 'No';
+      
+      // Debug log
+      console.log("🔵 [PO PDF] fullPO.gstInclude:", fullPO.gstInclude, "Type:", typeof fullPO.gstInclude);
+      console.log("🔵 [PO PDF] Converted gstInclude:", gstInclude);
+      console.log("🔵 [PO PDF] gstIncludeText:", gstIncludeText);
+
     // Calculate totals
     let subTotal = 0;
     let totalGST = 0;
@@ -515,7 +650,7 @@ const PurchaseOrderComplete = () => {
       const unitPrice = poItem.unitPrice || poItem.rate || 0;
       const unitQuantity = poItem.unitQuantity || 0;
       const amount = unitQuantity * unitPrice;
-      const gstAmount = fullPO.gstInclude && fullPO.gstPercent ? (amount * fullPO.gstPercent) / 100 : 0;
+      const gstAmount = gstInclude && gstPercent ? (amount * gstPercent) / 100 : 0;
       const totalAmount = amount + gstAmount;
 
       subTotal += amount;
@@ -681,41 +816,31 @@ const PurchaseOrderComplete = () => {
             <!-- Date and PO Number -->
             <div class="date-po-section">
               <strong>DATE: ${new Date(fullPO.orderDate).toLocaleDateString('en-GB')}</strong><br>
-              <strong>PO NO: ${fullPO.orderNumber}</strong>
+              <strong>PO NO: ${fullPO.orderNumber || 'N/A'}</strong><br>
+              <strong>GST Included: ${gstIncludeText}</strong>
+              ${gstInclude && gstPercent ? `<br><strong>GST Percentage: ${gstPercent}%</strong>` : ''}
             </div>
 
             <!-- To Section -->
             <div class="to-section">
               <h4>To:</h4>
-              <div><strong>${supplier?.supplierName || 'N/A'}</strong></div>
-              <div>${supplier?.address || 'N/A'}</div>
+              <div><strong>${supplier?.supplierName ? capitalizeTableText(supplier.supplierName, "supplierName") : 'N/A'}</strong></div>
+              <div>${supplier?.address ? capitalizeTableText(supplier.address, "address") : 'N/A'}</div>
               
               <div class="kind-attention">
-                <h4>KIND ATTENTION: ${supplier?.supplierName || 'N/A'}</h4>
+                <h4>KIND ATTENTION: ${supplier?.supplierName ? capitalizeTableText(supplier.supplierName, "supplierName") : 'N/A'}</h4>
                 <div><strong>PH No: ${supplier?.phone || 'N/A'}</strong></div>
               </div>
             </div>
 
             <!-- Addresses Section -->
             <div class="addresses-section">
-              <div class="address-box">
-                <h4>BILLING ADDRESS</h4>
-                <div>${address?.addressBill || 'N/A'}</div>
-                <div>Phone: ${address?.phone || 'N/A'}</div>
-                <div>Email: ${address?.email || 'N/A'}</div>
+              <div class="address-box" style="width: 100%;">
+                <h4>SUPPLIER ADDRESS</h4>
+                <div>${supplier?.address ? capitalizeTableText(supplier.address, "address") : (address?.addressBill ? capitalizeTableText(address.addressBill, "address") : (address?.addressShip ? capitalizeTableText(address.addressShip, "address") : 'N/A'))}</div>
+                ${supplier?.phone ? `<div>Phone: ${supplier.phone}</div>` : address?.phone ? `<div>Phone: ${address.phone || 'N/A'}</div>` : ''}
+                ${supplier?.email ? `<div>Email: ${supplier.email}</div>` : address?.email ? `<div>Email: ${address.email || 'N/A'}</div>` : ''}
                 <div>GST IN: ${supplier?.gstNumber || 'N/A'}</div>
-              </div>
-              <div class="address-box">
-                <h4>SHIPPING ADDRESS [DOOR DELIVERY]</h4>
-                ${shippingAddress ? `
-                  <div>${shippingAddress.addressShip || 'N/A'}</div>
-                  <div>Phone: ${shippingAddress.phone || 'N/A'}</div>
-                  <div>Email: ${shippingAddress.email || 'N/A'}</div>
-                ` : `
-                  <div>${address?.addressShip || 'N/A'}</div>
-                  <div>Phone: ${address?.phone || 'N/A'}</div>
-                  <div>Email: ${address?.email || 'N/A'}</div>
-                `}
               </div>
             </div>
 
@@ -736,7 +861,7 @@ const PurchaseOrderComplete = () => {
                   <th>QTY</th>
                   <th>UNIT PRICE</th>
                   <th>AMOUNT</th>
-                  ${fullPO.gstInclude ? `<th>GST ${fullPO.gstPercent || 0}%</th>` : ''}
+                  ${gstInclude ? `<th>GST ${gstPercent || 0}%</th>` : ''}
                   <th>TOTAL AMT</th>
                 </tr>
               </thead>
@@ -744,12 +869,12 @@ const PurchaseOrderComplete = () => {
                 ${itemsWithCalculations.map(item => `
                   <tr>
                     <td class="text-center">${item.serialNumber}</td>
-                    <td>${item.product?.productName || 'N/A'}</td>
-                    <td class="text-center">${item.product?.unit?.unitName || 'N/A'}</td>
+                    <td>${item.product?.productName ? capitalizeTableText(item.product.productName, "productName") : 'N/A'}</td>
+                    <td class="text-center">${item.product?.unit?.unitName ? capitalizeTableText(item.product.unit.unitName, "unitName") : 'N/A'}</td>
                     <td class="text-center">${item.unitQuantity || 0}</td>
                     <td class="text-right">₹${item.unitPrice.toFixed(2)}</td>
                     <td class="text-right">₹${item.amount.toFixed(2)}</td>
-                    ${fullPO.gstInclude ? `<td class="text-right">₹${item.gstAmount.toFixed(2)}</td>` : ''}
+                    ${gstInclude ? `<td class="text-right">₹${item.gstAmount.toFixed(2)}</td>` : ''}
                     <td class="text-right">₹${item.totalAmount.toFixed(2)}</td>
                   </tr>
                 `).join('')}
@@ -763,9 +888,9 @@ const PurchaseOrderComplete = () => {
                   <td><strong>Sub Total:</strong></td>
                   <td class="text-right"><strong>₹${subTotal.toFixed(2)}</strong></td>
                 </tr>
-                ${fullPO.gstInclude && fullPO.gstPercent ? `
+                ${gstInclude && gstPercent ? `
                 <tr>
-                  <td><strong>GST (${fullPO.gstPercent}%):</strong></td>
+                  <td><strong>GST (${gstPercent}%):</strong></td>
                   <td class="text-right"><strong>₹${totalGST.toFixed(2)}</strong></td>
                 </tr>
                 ` : ''}
@@ -858,25 +983,46 @@ const PurchaseOrderComplete = () => {
       key: "supplierName",
       render: (_, record) => {
         const supplier = record.supplier || suppliers.find(s => s.id === record.supplierId);
-        return supplier?.supplierName || "-";
+        return capitalizeTableText(supplier?.supplierName, "supplierName") || "-";
       }
     },
     {
       title: "GST Include",
       dataIndex: "gstInclude",
       key: "gstInclude",
-      render: (include) => (
-        <Tag color={include ? "green" : "red"}>
-          {include ? "Yes" : "No"}
-        </Tag>
-      ),
+      render: (include) => {
+        const hasGST = !!include;
+        return (
+          <Tag color={hasGST ? "green" : "red"}>
+            {hasGST ? "Yes" : "No"}
+          </Tag>
+        );
+      },
     },
     {
       title: "Total Amount",
-      dataIndex: "grandTotal",
       key: "grandTotal",
-      render: (amount) => `₹${amount?.toFixed(2) || '0.00'}`,
-      sorter: (a, b) => (a.grandTotal || 0) - (b.grandTotal || 0),
+      render: (_, record) => {
+        // Calculate grandTotal from items
+        const items = record.items || [];
+        const subTotal = items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+        const gstPercent = record.gstPercent || 0;
+        const gstInclude = record.gstInclude || false;
+        const taxTotal = gstInclude ? subTotal * (gstPercent / 100) : 0;
+        const grandTotal = subTotal + taxTotal;
+        return `₹${grandTotal.toFixed(2)}`;
+      },
+      sorter: (a, b) => {
+        const calcTotal = (po) => {
+          const items = po.items || [];
+          const subTotal = items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+          const gstPercent = po.gstPercent || 0;
+          const gstInclude = po.gstInclude || false;
+          const taxTotal = gstInclude ? subTotal * (gstPercent / 100) : 0;
+          return subTotal + taxTotal;
+        };
+        return calcTotal(a) - calcTotal(b);
+      },
     },
     {
       title: "Status",
@@ -952,9 +1098,11 @@ const PurchaseOrderComplete = () => {
             >
               Receive
             </Button>
-          ) : record.status === 'received' ? (
-            <Tag color="green">Received</Tag>
-          ) : null}
+          ) 
+          // : record.status === 'received' ? (
+          //   <Tag color="green">Received</Tag>
+          // ) 
+          : null}
           {canEdit() && (
             <Button
 
@@ -1007,10 +1155,11 @@ const PurchaseOrderComplete = () => {
               if (showCreateForm) {
                 createForm.resetFields();
                 setGstInclude(false);
+                setSelectedSupplierAddress(null);
               }
             }}
             type="primary"
-            size="large"
+            size="medium"
           >
             {showCreateForm ? "Cancel" : "Create New PO"}
           </Button>
@@ -1114,63 +1263,36 @@ const PurchaseOrderComplete = () => {
                   label="Supplier"
                   rules={[{ required: true, message: "Please select supplier" }]}
                 >
-                  <Select placeholder="Select supplier">
+                  <Select 
+                    placeholder="Select supplier"
+                    onChange={(supplierId) => {
+                      const supplier = suppliers.find(s => s.id === supplierId);
+                      if (supplier && supplier.address) {
+                        setSelectedSupplierAddress(supplier.address);
+                      } else {
+                        setSelectedSupplierAddress(null);
+                      }
+                    }}
+                  >
                     {suppliers.map((supplier) => (
                       <Select.Option key={supplier.id} value={supplier.id}>
-                        {supplier.supplierName}
+                        {capitalizeTableText(supplier.supplierName, "supplierName")}
                       </Select.Option>
                     ))}
                   </Select>
                 </Form.Item>
               </Col>
-              <Col xs={24} sm={8}>
+              <Col xs={24} sm={24}>
                 <Form.Item
-                  name="addressId"
-                  label="Billing Address"
-                  rules={[{ required: true, message: "Please select billing address" }]}
+                  label="Supplier Address"
                 >
-                  <Select
-                    placeholder="Select billing address"
-                    showSearch
-                    optionFilterProp="children"
-                    filterOption={(input, option) =>
-                      option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
-                    }
-                    dropdownStyle={{ minWidth: 400 }}
-                  >
-                    {addresses.map((address) => (
-                      <Select.Option key={address.id} value={address.id}>
-                        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '350px' }}>
-                          <strong>Billing:</strong> {address.addressBill} | <strong>Phone:</strong> {address.phone} | <strong>Email:</strong> {address.email}
-                        </div>
-                      </Select.Option>
-                    ))}
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={8}>
-                <Form.Item
-                  name="shippingAddressId"
-                  label="Shipping Address"
-                  rules={[{ required: true, message: "Please select shipping address" }]}
-                >
-                  <Select
-                    placeholder="Select shipping address"
-                    showSearch
-                    optionFilterProp="children"
-                    filterOption={(input, option) =>
-                      option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
-                    }
-                    dropdownStyle={{ minWidth: 400 }}
-                  >
-                    {addresses.map((address) => (
-                      <Select.Option key={address.id} value={address.id}>
-                        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '350px' }}>
-                          <strong>Shipping:</strong> {address.addressShip} | <strong>Phone:</strong> {address.phone} | <strong>Email:</strong> {address.email}
-                        </div>
-                      </Select.Option>
-                    ))}
-                  </Select>
+                  <Input.TextArea 
+                    rows={3}
+                    value={selectedSupplierAddress || ""}
+                    readOnly
+                    placeholder="Select a supplier to view address"
+                    style={{ backgroundColor: "#f5f5f5" }}
+                  />
                 </Form.Item>
               </Col>
               <Col xs={24} sm={8}>
@@ -1243,7 +1365,10 @@ const PurchaseOrderComplete = () => {
                   { 
                     title: "Product Name", 
                     key: "productName",
-                    render: (_, record) => record?.product?.productName || (record?.productId ? products.find(p => p.id === record.productId)?.productName : "-")
+                    render: (_, record) => {
+                      const productName = record?.product?.productName || (record?.productId ? products.find(p => p.id === record.productId)?.productName : "-");
+                      return capitalizeTableText(productName, "productName");
+                    }
                   },
                   { 
                     title: "Barcode", 
@@ -1257,7 +1382,7 @@ const PurchaseOrderComplete = () => {
                       // Try multiple paths to get unit name
                       const unitName = record?.product?.unit?.unitName 
                         || (record?.productId ? products.find(p => p.id === record.productId)?.unit?.unitName : null);
-                      return unitName || "-";
+                      return capitalizeTableText(unitName, "unitName") || "-";
                     }
                   },
                   { title: "Unit Quantity", dataIndex: "unitQuantity", key: "unitQuantity" },
@@ -1324,6 +1449,7 @@ const PurchaseOrderComplete = () => {
                 </Button>
                 <Button onClick={() => {
                   setShowCreateForm(false);
+                  setSelectedSupplierAddress(null);
                   setPoItems([]);
                   createForm.resetFields();
                 }}>
@@ -1374,7 +1500,7 @@ const PurchaseOrderComplete = () => {
             <Row gutter={16}>
               <Col span={12}>
                 <Title level={4}>Supplier Details</Title>
-                <p><strong>Name:</strong> {selectedPO.supplier?.supplierName}</p>
+                <p><strong>Name:</strong> {capitalizeTableText(selectedPO.supplier?.supplierName, "supplierName")}</p>
                 <p><strong>Email:</strong> {selectedPO.supplier?.email}</p>
                 <p><strong>Phone:</strong> {selectedPO.supplier?.phone}</p>
               </Col>
@@ -1383,10 +1509,23 @@ const PurchaseOrderComplete = () => {
                 <p><strong>PO Number:</strong> {selectedPO.orderNumber}</p>
                 <p><strong>Date:</strong> {selectedPO.orderDate ? dayjs(selectedPO.orderDate).format('DD/MM/YYYY') : '-'}</p>
                 <p><strong>Status:</strong> {selectedPO.status ? selectedPO.status.charAt(0).toUpperCase() + selectedPO.status.slice(1) : '-'}</p>
-                <p><strong>GST Include:</strong> {selectedPO.gstInclude ? 'Yes' : 'No'}</p>
-                {selectedPO.gstInclude && (
-                  <p><strong>GST Percentage:</strong> {selectedPO.gstPercent || 18}%</p>
-                )}
+                <p><strong>GST Include:</strong> {
+                  (() => {
+                    const gstValue = selectedPO.gstInclude;
+                    if (gstValue === null || gstValue === undefined) return 'No';
+                    if (typeof gstValue === 'boolean') return gstValue ? 'Yes' : 'No';
+                    if (typeof gstValue === 'string') return (gstValue.toLowerCase() === 'true' || gstValue === '1') ? 'Yes' : 'No';
+                    if (typeof gstValue === 'number') return gstValue === 1 ? 'Yes' : 'No';
+                    return 'No';
+                  })()
+                }</p>
+                {(() => {
+                  const gstValue = selectedPO.gstInclude;
+                  const hasGST = gstValue === true || gstValue === "true" || gstValue === 1 || gstValue === "1";
+                  return hasGST && (
+                    <p><strong>GST Percentage:</strong> {selectedPO.gstPercent || 18}%</p>
+                  );
+                })()}
               </Col>
             </Row>
 
@@ -1402,7 +1541,10 @@ const PurchaseOrderComplete = () => {
                 { 
                   title: "Product Name", 
                   key: "productName",
-                  render: (_, record) => record?.product?.productName || (record?.productId ? products.find(p => p.id === record.productId)?.productName : "-")
+                  render: (_, record) => {
+                    const productName = record?.product?.productName || (record?.productId ? products.find(p => p.id === record.productId)?.productName : "-");
+                    return capitalizeTableText(productName, "productName");
+                  }
                 },
                 { 
                   title: "Barcode", 
@@ -1431,35 +1573,30 @@ const PurchaseOrderComplete = () => {
             <Divider />
 
             <Row gutter={16}>
-              <Col span={12}>
-                <Title level={4}>Billing Address</Title>
-                {selectedPO.address ? (
+              <Col span={24}>
+                <Title level={4}>Supplier Address</Title>
+                {selectedPO.supplier?.address ? (
                   <div>
-                    <p><strong>Address:</strong> {selectedPO.address.addressBill}</p>
-                    <p><strong>Phone:</strong> {selectedPO.address.phone}</p>
-                    <p><strong>Email:</strong> {selectedPO.address.email}</p>
-                  </div>
-                ) : (
-                  <p>No billing address</p>
-                )}
-              </Col>
-              <Col span={12}>
-                <Title level={4}>Shipping Address</Title>
-                {selectedPO.shippingAddress ? (
-                  <div>
-                    <p><strong>Address:</strong> {selectedPO.shippingAddress.addressShip}</p>
-                    <p><strong>Phone:</strong> {selectedPO.shippingAddress.phone}</p>
-                    <p><strong>Email:</strong> {selectedPO.shippingAddress.email}</p>
+                    <p><strong>Address:</strong> {capitalizeTableText(selectedPO.supplier.address, "address")}</p>
+                    {selectedPO.supplier.phone && (
+                      <p><strong>Phone:</strong> {selectedPO.supplier.phone}</p>
+                    )}
+                    {selectedPO.supplier.email && (
+                      <p><strong>Email:</strong> {selectedPO.supplier.email}</p>
+                    )}
                   </div>
                 ) : selectedPO.address ? (
                   <div>
-                    <p><em>Same as billing address</em></p>
-                    <p><strong>Address:</strong> {selectedPO.address.addressBill}</p>
-                    <p><strong>Phone:</strong> {selectedPO.address.phone}</p>
-                    <p><strong>Email:</strong> {selectedPO.address.email}</p>
+                    <p><strong>Address:</strong> {selectedPO.address.addressBill || selectedPO.address.addressShip}</p>
+                    {selectedPO.address.phone && (
+                      <p><strong>Phone:</strong> {selectedPO.address.phone}</p>
+                    )}
+                    {selectedPO.address.email && (
+                      <p><strong>Email:</strong> {selectedPO.address.email}</p>
+                    )}
                   </div>
                 ) : (
-                  <p>No shipping address</p>
+                  <p>No address available</p>
                 )}
               </Col>
             </Row>
@@ -1549,7 +1686,7 @@ const PurchaseOrderComplete = () => {
             >
               {products.map((product) => (
                 <Select.Option key={product.id} value={product.id}>
-                  {product.productName} ({product.barCode}) - ₹{product.purchasePrice || 0}/{product.unit?.unitName || 'unit'}
+                  {capitalizeTableText(product.productName, "productName")} ({product.barCode}) - ₹{product.purchasePrice || 0}/{capitalizeTableText(product.unit?.unitName, "unitName") || 'unit'}
                 </Select.Option>
               ))}
             </Select>

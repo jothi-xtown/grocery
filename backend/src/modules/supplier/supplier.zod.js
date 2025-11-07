@@ -4,7 +4,7 @@ export const createSupplierSchema = z.object({
   supplierName: z.string().min(1).max(255),
   gstNumber: z.string().max(255).optional(),
   phone: z.union([
-    z.string().regex(/^\d{10}$/, "Phone number must be exactly 10 digits"),
+    z.string().regex(/^\d{10,11}$/, "Phone number must be 10 digits (mobile) or 11 digits (landline)"),
     z.literal(""),
     z.null(),
     z.undefined()

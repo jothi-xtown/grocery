@@ -79,6 +79,18 @@ router.post(
 /* 📋 Get All Bills */
 router.get("/", authorize("read"), BillController.getAll);
 
+/* 📊 Get Dashboard Stats */
+router.get("/dashboard/stats", authorize("read"), BillController.getDashboardStats);
+
+/* 📊 Get Sales Report */
+router.get("/reports/sales", authorize("read"), BillController.getSalesReport);
+
+/* 📊 Get Profit & Loss Report */
+router.get("/reports/profit-loss", authorize("read"), BillController.getProfitLossReport);
+
+/* 📊 Get Payment Collection Report */
+router.get("/reports/payment-collection", authorize("read"), BillController.getPaymentCollectionReport);
+
 /* 🔍 Get Bill by ID */
 router.get("/:id", authorize("read"), BillController.getById);
 

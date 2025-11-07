@@ -18,6 +18,7 @@ const PurchaseOrder = sequelize.define(
       type: DataTypes.STRING(50),
       allowNull: false,
       unique: true,
+      defaultValue: null, // Will be set by beforeValidate hook
     },
     orderDate: {
       type: DataTypes.DATE,
@@ -37,7 +38,8 @@ const PurchaseOrder = sequelize.define(
         model: "address",
         key: "id",
       },
-      allowNull: false,
+      allowNull: true,
+      defaultValue: null,
     },
     shippingAddressId: {
       type: DataTypes.UUID,
@@ -46,6 +48,7 @@ const PurchaseOrder = sequelize.define(
         key: "id",
       },
       allowNull: true,
+      defaultValue: null,
     },
     gstInclude: {
       type: DataTypes.BOOLEAN,
@@ -73,12 +76,10 @@ const PurchaseOrder = sequelize.define(
     hooks: {
       // Auto-generate order number before creating a PO
       beforeValidate: async (po, options) => {
-        console.log("🔵 [PO Hook] beforeValidate triggered");
-        
-        // Only generate orderNumber if it's not already set
-        if (!po.orderNumber) {
+        // Only generate orderNumber if it's not already set or is empty/whitespace
+        if (!po.orderNumber || !po.orderNumber.trim()) {
           try {
-            console.log("🔵 [PO Hook] Generating order number for new PO...");
+            console.log("🔵 [PO Hook] Generating orderNumber...");
             
             // Get current financial year (April to March)
             const now = new Date();
@@ -98,10 +99,12 @@ const PurchaseOrder = sequelize.define(
             }
             
             const fyString = `${fyStartYear}-${fyEndYear}`;
+            console.log("🔵 [PO Hook] Financial year string:", fyString);
             
             // Find the last PO with the same financial year prefix
+            // Use transaction if available to ensure consistency
             const POModel = po.constructor;
-            const lastPO = await POModel.findOne({
+            const queryOptions = {
               where: {
                 orderNumber: {
                   [Op.like]: `PO/${fyString}/%`
@@ -109,7 +112,16 @@ const PurchaseOrder = sequelize.define(
               },
               order: [["createdAt", "DESC"]],
               paranoid: false, // Include soft-deleted records
-            });
+            };
+            
+            // Include transaction if available
+            if (options?.transaction) {
+              queryOptions.transaction = options.transaction;
+            }
+            
+            console.log("🔵 [PO Hook] Querying for last PO...");
+            const lastPO = await POModel.findOne(queryOptions);
+            console.log("🔵 [PO Hook] Last PO found:", lastPO?.orderNumber || "none");
             
             let lastNumber = 0;
             if (lastPO?.orderNumber) {
@@ -120,14 +132,46 @@ const PurchaseOrder = sequelize.define(
               }
             }
             
-            // Generate new order number
-            const newNumber = (lastNumber + 1).toString().padStart(3, "0");
-            po.orderNumber = `PO/${fyString}/${newNumber}`;
-            console.log(`✅ [PO Hook] Generated order number: ${po.orderNumber}`);
+            console.log("🔵 [PO Hook] Last number:", lastNumber);
+            
+            // Generate new order number with retry logic for uniqueness
+            let attempts = 0;
+            let newNumber;
+            let generatedOrderNumber;
+            
+            do {
+              newNumber = (lastNumber + 1 + attempts).toString().padStart(3, "0");
+              generatedOrderNumber = `PO/${fyString}/${newNumber}`;
+              
+              // Check if this order number already exists
+              const existingPO = await POModel.findOne({
+                where: { orderNumber: generatedOrderNumber },
+                paranoid: false,
+                transaction: options?.transaction,
+              });
+              
+              if (!existingPO) {
+                break; // Number is unique
+              }
+              
+              attempts++;
+              if (attempts > 100) {
+                // Fallback to timestamp if too many attempts
+                console.warn("⚠️ [PO Hook] Too many duplicate attempts, using fallback");
+                throw new Error("Too many duplicate attempts");
+              }
+            } while (attempts <= 100);
+            
+            po.orderNumber = generatedOrderNumber;
+            console.log("✅ [PO Hook] Generated orderNumber:", po.orderNumber);
           } catch (error) {
+            console.error("❌ [PO Hook] Error generating orderNumber:", error);
+            console.error("❌ [PO Hook] Error message:", error.message);
+            console.error("❌ [PO Hook] Error stack:", error.stack);
+            
             // If hook fails, generate a timestamp-based order number as fallback
-            console.error("⚠️ [PO Hook] Error generating order number, using fallback:", error.message);
             const timestamp = Date.now().toString().slice(-6);
+            const random = Math.floor(Math.random() * 100).toString().padStart(2, "0");
             const now = new Date();
             const currentYear = now.getFullYear();
             const currentMonth = now.getMonth() + 1;
@@ -139,11 +183,11 @@ const PurchaseOrder = sequelize.define(
               fyStartYear = (currentYear - 1).toString().slice(-2);
               fyEndYear = currentYear.toString().slice(-2);
             }
-            po.orderNumber = `PO/${fyStartYear}-${fyEndYear}/${timestamp}`;
-            console.log(`✅ [PO Hook] Fallback order number generated: ${po.orderNumber}`);
+            po.orderNumber = `PO/${fyStartYear}-${fyEndYear}/${timestamp}${random}`;
+            console.log("✅ [PO Hook] Using fallback orderNumber:", po.orderNumber);
           }
         } else {
-          console.log(`ℹ️ [PO Hook] Order number already set: ${po.orderNumber}`);
+          console.log("🔵 [PO Hook] OrderNumber already set:", po.orderNumber);
         }
       },
     },

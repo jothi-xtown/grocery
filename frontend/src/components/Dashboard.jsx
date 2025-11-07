@@ -4,172 +4,65 @@ import {
   Row,
   Col,
   Statistic,
-  Table,
-  Tag,
-  Button,
-  Progress,
-  Typography,
-  DatePicker,
   Select,
   Space,
-  Alert,
+  Typography,
+  Spin,
 } from "antd";
 import {
-  UserOutlined,
-  CarOutlined,
-  ShopOutlined,
-  FileTextOutlined,
-  ToolOutlined,
-  HomeOutlined,
-  TeamOutlined,
   DollarOutlined,
-  FireOutlined,
-  ExclamationCircleOutlined,
-  ClockCircleOutlined,
+  RiseOutlined,
+  FallOutlined,
+  ShoppingCartOutlined,
+  UserOutlined,
+  ShopOutlined,
+  HomeOutlined,
+  FileTextOutlined,
+  CreditCardOutlined,
 } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
 import api from "../service/api";
-import { getUserRole } from "../service/auth";
 import dayjs from "dayjs";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 
 const { Title, Text } = Typography;
-const { RangePicker } = DatePicker;
 const { Option } = Select;
 
 const Dashboard = () => {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({
-    employees: 0,
-    vehicles: 0,
-    sites: 0,
-    suppliers: 0,
-    items: 0,
-    purchaseOrders: 0,
-    services: 0,
-    compressors: 0,
+    totalSales: 0,
+    totalCost: 0,
+    profit: 0,
+    loss: 0,
+    graphData: [],
   });
-  const [todayAttendance, setTodayAttendance] = useState([]);
-  const [serviceAlerts, setServiceAlerts] = useState([]);
-  const [financialData, setFinancialData] = useState({
-    totalSalaryPaid: 0,
-    totalPOAmount: 0,
-    totalDieselUsed: 0,
+  const [period, setPeriod] = useState("monthly");
+  const [entityStats, setEntityStats] = useState({
+    totalCustomers: 0,
+    totalSuppliers: 0,
+    totalBranches: 0,
+    pendingInvoices: 0,
+    totalDues: 0,
   });
-  const [dateRange, setDateRange] = useState([dayjs().subtract(30, 'days'), dayjs()]);
-  const [timeFilter, setTimeFilter] = useState('monthly');
+  const [entityLoading, setEntityLoading] = useState(false);
 
   // Fetch dashboard data
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      // Fetch counts for all modules
-      const [
-        employeesRes,
-        vehiclesRes,
-        sitesRes,
-        suppliersRes,
-        itemsRes,
-        purchaseOrdersRes,
-        servicesRes,
-        compressorsRes,
-        dailyEntriesRes,
-        attendanceRes,
-      ] = await Promise.all([
-        api.get("/api/employeeLists"),
-        api.get("/api/vehicles"),
-        api.get("/api/sites"),
-        api.get("/api/suppliers"),
-        api.get("/api/items"),
-        api.get("/api/pos"),
-        api.get("/api/services"),
-        api.get("/api/compressors"),
-        api.get("/api/dailyEntries").catch(() => ({ data: { data: [] } })),
-        api.get("/api/employeeAttendance").catch(() => ({ data: { data: [] } })),
-      ]);
-
-
-      setStats({
-        // employees: employeesRes.data.data?.length || 0,
-        employees: employeesRes.data?.total ?? employeesRes.data?.data?.length ?? 0,
-        vehicles: vehiclesRes.data?.total ?? vehiclesRes.data?.data?.length ?? 0,
-        sites: sitesRes.data?.total ?? sitesRes.data?.data?.length ?? 0,
-        suppliers: suppliersRes.data?.total ?? suppliersRes.data?.data?.length ?? 0,
-        items: itemsRes.data?.total ?? itemsRes.data?.data?.length ?? 0,
-        purchaseOrders: purchaseOrdersRes.data?.total ?? purchaseOrdersRes.data?.data?.length ?? 0,
-        services: servicesRes.data?.total ?? servicesRes.data?.data?.length ?? 0,
-        compressors: compressorsRes.data?.total ?? compressorsRes.data?.data?.length ?? 0,
-      });
-
-
-      // Fetch today's attendance
-      const today = dayjs().format("YYYY-MM-DD");
-      const todayAttendances = (attendanceRes.data.data || [])
-        .filter((att) => att.date === today)
-        .map((att) => ({
-          ...att,
-          employee: att.employee || (att.employeeId && (employeesRes.data.data || []).find(e => e.id === att.employeeId)) || {},
-          site: att.site || (att.siteId && (sitesRes.data.data || []).find(s => s.id === att.siteId)) || {},
-        }));
-      setTodayAttendance(todayAttendances.slice(0, 5));
-      
-
-      // Check service alerts for vehicles and compressors
-      const alerts = [];
-      
-      // Check vehicle service schedules
-      vehiclesRes.data.data?.forEach(vehicle => {
-        if (vehicle.vehicleServiceSchedule && vehicle.vehicleServiceSchedule.length > 0) {
-          const nextServiceRPM = Math.min(...vehicle.vehicleServiceSchedule);
-          const remainingRPM = nextServiceRPM - (vehicle.vehicleRPM ?? 0);
-          
-          if (remainingRPM <= 0) {
-            alerts.push({
-              type: 'vehicle',
-              message: `${vehicle.vehicleNumber} service is due NOW (${nextServiceRPM} RPM)`,
-              priority: 'high',
-              item: vehicle.vehicleNumber,
-            });
-          } else if (remainingRPM <= 100) {
-            alerts.push({
-              type: 'vehicle',
-              message: `${vehicle.vehicleNumber} service due soon (${remainingRPM} RPM remaining)`,
-              priority: 'medium',
-              item: vehicle.vehicleNumber,
-            });
-          }
-        }
-      });
-
-      // Check compressor service schedules
-      vehiclesRes.data.data?.forEach(vehicle => {
-        if (vehicle.compressorId && vehicle.compressorServiceSchedule && vehicle.compressorServiceSchedule.length > 0) {
-          const nextServiceRPM = Math.min(...vehicle.compressorServiceSchedule);
-          const remainingRPM = nextServiceRPM - (vehicle.compressorRPM ?? 0);
-
-          if (remainingRPM <= 0) {
-            alerts.push({
-              type: 'compressor',
-              message: `${vehicle.compressor?.compressorName || 'Compressor'} (in ${vehicle.vehicleNumber}) service is due NOW (${nextServiceRPM} RPM)`,
-              priority: 'high',
-              item: vehicle.compressor?.compressorName || 'Compressor',
-            });
-          } else if (remainingRPM <= 100) {
-            alerts.push({
-              type: 'compressor',
-              message: `${vehicle.compressor?.compressorName || 'Compressor'} (in ${vehicle.vehicleNumber}) service due soon (${remainingRPM} RPM remaining)`,
-              priority: 'medium',
-              item: vehicle.compressor?.compressorName || 'Compressor',
-            });
-          }
-        }
-      });
-
-      setServiceAlerts(alerts);
-
-      // Calculate financial data
-      await calculateFinancialData();
-
+      const res = await api.get(`/api/bill/dashboard/stats?period=${period}`);
+      if (res.data.success) {
+        setStats(res.data.data);
+      }
     } catch (err) {
       console.error("Error fetching dashboard data", err);
     } finally {
@@ -177,77 +70,103 @@ const Dashboard = () => {
     }
   };
 
-  // Calculate financial data based on date range
-  const calculateFinancialData = async () => {
+  // Fetch entity statistics
+  const fetchEntityStats = async () => {
+    setEntityLoading(true);
     try {
-      const startDate = dateRange[0].format('YYYY-MM-DD');
-      const endDate = dateRange[1].format('YYYY-MM-DD');
+      const [customersRes, suppliersRes, branchesRes, billsRes, accountsRes] =
+        await Promise.all([
+          api.get("/api/customers?limit=1000").catch(() => ({ data: { success: true, data: [] } })),
+          api.get("/api/suppliers?limit=1000").catch(() => ({ data: { success: true, data: [] } })),
+          api.get("/api/branches?limit=1000").catch(() => ({ data: { success: true, data: [] } })),
+          api.get("/api/bill?limit=1000").catch(() => ({ data: { success: true, data: [] } })),
+          api.get("/api/accounts?limit=1000").catch(() => ({ data: { success: true, data: [] } })),
+        ]);
 
-      // Fetch attendance data for salary calculation
-      const attendanceRes = await api.get(`/api/employeeAttendance?startDate=${startDate}&endDate=${endDate}`);
-      const attendanceData = attendanceRes.data.data || [];
+      // Handle different response formats
+      const getData = (res) => {
+        if (res.data?.data) {
+          return Array.isArray(res.data.data) ? res.data.data : [];
+        }
+        return [];
+      };
 
-      // Calculate total salary paid
-      const totalSalaryPaid = attendanceData.reduce((sum, att) => sum + (att.salary || 0), 0);
+      const customers = getData(customersRes);
+      const suppliers = getData(suppliersRes);
+      const branches = getData(branchesRes);
+      const bills = getData(billsRes);
+      const accounts = getData(accountsRes);
 
-      // Fetch PO data for amount calculation
-      const poRes = await api.get(`/api/pos?startDate=${startDate}&endDate=${endDate}`);
-      const poData = poRes.data.data || [];
-      const totalPOAmount = poData.reduce((sum, po) => sum + (po.grandTotal || 0), 0);
+      // Count pending invoices (invoices with paymentStatus !== "paid")
+      const invoices = bills.filter(
+        (bill) => bill.type === "invoice" && bill.paymentStatus !== "paid"
+      );
 
-      // Fetch daily entries for diesel calculation
-      const dailyEntriesRes = await api.get(`/api/dailyEntries?startDate=${startDate}&endDate=${endDate}`);
-      const dailyEntriesData = dailyEntriesRes.data.data || [];
-      const totalDieselUsed = dailyEntriesData.reduce((sum, entry) => sum + (entry.dieselUsed || 0), 0);
+      // Calculate total dues from accounts
+      const totalDues = accounts.reduce(
+        (sum, account) => sum + (parseFloat(account.dueAmount) || 0),
+        0
+      );
 
-      setFinancialData({
-        totalSalaryPaid,
-        totalPOAmount,
-        totalDieselUsed,
+      // Get count from response total field or array length
+      const getCount = (res, data) => {
+        if (res.data?.total !== undefined) {
+          return res.data.total;
+        }
+        return Array.isArray(data) ? data.length : 0;
+      };
+
+      setEntityStats({
+        totalCustomers: getCount(customersRes, customers),
+        totalSuppliers: getCount(suppliersRes, suppliers),
+        totalBranches: getCount(branchesRes, branches),
+        pendingInvoices: invoices.length,
+        totalDues: totalDues,
       });
     } catch (err) {
-      console.error("Error calculating financial data", err);
+      console.error("Error fetching entity stats", err);
+    } finally {
+      setEntityLoading(false);
     }
   };
 
   useEffect(() => {
     fetchDashboardData();
-  }, [dateRange]);
+    fetchEntityStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period]);
 
-  // Handle time filter change
-  const handleTimeFilterChange = (value) => {
-    setTimeFilter(value);
-    const today = dayjs();
-    
-    switch (value) {
-      case 'daily':
-        setDateRange([today, today]);
-        break;
-      case 'weekly':
-        setDateRange([today.subtract(7, 'days'), today]);
-        break;
-      case 'monthly':
-        setDateRange([today.subtract(30, 'days'), today]);
-        break;
-      case 'yearly':
-        setDateRange([today.subtract(365, 'days'), today]);
-        break;
-      case 'custom':
-        // Keep current date range
-        break;
-      default:
-        setDateRange([today.subtract(30, 'days'), today]);
+  // Format currency
+  const formatCurrency = (value) => {
+    return `₹${value.toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  };
+
+  // Format date for display
+  const formatDate = (dateStr) => {
+    if (period === "today") {
+      return dayjs(dateStr).format("HH:mm");
+    } else if (period === "weekly") {
+      return dayjs(dateStr).format("ddd DD/MM");
+    } else {
+      return dayjs(dateStr).format("DD/MM");
     }
   };
 
-  // Navigation handlers
-  const handleNavigation = (path) => {
-    navigate(path);
-  };
+  // Prepare graph data
+  const chartData = (stats.graphData || []).map((item) => ({
+    ...item,
+    dateLabel: formatDate(item.date),
+  }));
+
+  // Calculate net profit (Total Sales - Total Cost)
+  const netProfit = stats.totalSales - stats.totalCost;
 
   return (
-    <div className="space-y-6">
-      <style jsx="true">{`
+    <div style={{ padding: "24px", gap: "24px", display: "flex", flexDirection: "column" }}>
+      <style>{`
         @media (max-width: 640px) {
           .mobile-card .ant-card-body {
             padding: 12px !important;
@@ -264,244 +183,294 @@ const Dashboard = () => {
           }
         }
       `}</style>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div className="min-w-0">
-          <Title level={2} className="mb-2">Dashboard</Title>
-          <Text type="secondary">Overview of your VA ERP system</Text>
+          <Title level={2} className="mb-2">
+            Dashboard
+          </Title>
+          <Text type="secondary">
+            Overview of sales, profit, and loss analytics
+          </Text>
         </div>
         <Space wrap>
           <Select
-            value={timeFilter}
-            onChange={handleTimeFilterChange}
+            value={period}
+            onChange={setPeriod}
             style={{ width: 120 }}
+            size="large"
           >
-            <Option value="daily">Daily</Option>
+            <Option value="today">Today</Option>
             <Option value="weekly">Weekly</Option>
             <Option value="monthly">Monthly</Option>
-            <Option value="yearly">Yearly</Option>
-            <Option value="custom">Custom</Option>
           </Select>
-          {timeFilter === 'custom' && (
-            <RangePicker
-              value={dateRange}
-              onChange={setDateRange}
-              format="YYYY-MM-DD"
-              style={{ width: '100%' }}
-            />
-          )}
         </Space>
       </div>
 
-      {/* Service Alerts */}
-      {serviceAlerts.length > 0 && (
-        <Alert
-          message={`${serviceAlerts.length} Service Alert${serviceAlerts.length > 1 ? 's' : ''}`}
-          description={
-            <div>
-              {serviceAlerts.slice(0, 3).map((alert, index) => (
-                <div key={index} className="mb-1">
-                  <Text type={alert.priority === 'high' ? 'danger' : 'warning'}>
-                    • {alert.message}
-                  </Text>
-                </div>
-              ))}
-              {serviceAlerts.length > 3 && (
-                <Text type="secondary">... and {serviceAlerts.length - 3} more</Text>
-              )}
-            </div>
-          }
-          type={serviceAlerts.some(a => a.priority === 'high') ? 'error' : 'warning'}
-          showIcon
-          className="mb-4"
-        />
-      )}
-
-      {/* Financial Overview */}
-      <Row gutter={[8, 8]}>
+      {/* Summary Cards */}
+      <Row gutter={[20, 20]}>
         <Col xs={24} sm={12} md={8}>
           <Card size="small" className="mobile-card">
             <Statistic
-              title="Total Salary Paid"
-              value={financialData.totalSalaryPaid}
-              prefix={<DollarOutlined />}
-              valueStyle={{ color: '#52c41a', fontSize: '16px' }}
-              formatter={(value) => `₹${value.toLocaleString()}`}
+              title="Total Sales"
+              value={stats.totalSales}
+              prefix={<ShoppingCartOutlined />}
+              valueStyle={{ color: "#1890ff", fontSize: "20px" }}
+              formatter={(value) => formatCurrency(value)}
             />
             <Text type="secondary" className="text-xs">
-              {dayjs(dateRange[0]).format('DD/MM/YYYY')} - {dayjs(dateRange[1]).format('DD/MM/YYYY')}
-            </Text>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={8}>
-          <Card size="small" className="mobile-card">
-            <Statistic
-              title="Purchase Order Amount"
-              value={financialData.totalPOAmount}
-              prefix={<FileTextOutlined />}
-              valueStyle={{ color: '#1890ff', fontSize: '16px' }}
-              formatter={(value) => `₹${value.toLocaleString()}`}
-            />
-            <Text type="secondary" className="text-xs">
-              {dayjs(dateRange[0]).format('DD/MM/YYYY')} - {dayjs(dateRange[1]).format('DD/MM/YYYY')}
-            </Text>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={8}>
-          <Card size="small" className="mobile-card">
-            <Statistic
-              title="Total Diesel Used"
-              value={financialData.totalDieselUsed}
-              prefix={<FireOutlined />}
-              valueStyle={{ color: '#faad14', fontSize: '16px' }}
-              formatter={(value) => `${value.toLocaleString()}L`}
-            />
-            <Text type="secondary" className="text-xs">
-              {dayjs(dateRange[0]).format('DD/MM/YYYY')} - {dayjs(dateRange[1]).format('DD/MM/YYYY')}
+              {stats.startDate && stats.endDate
+                ? `${dayjs(stats.startDate).format("DD/MM/YYYY")} - ${dayjs(
+                    stats.endDate
+                  ).format("DD/MM/YYYY")}`
+                : ""}
             </Text>
           </Card>
         </Col>
       </Row>
 
-      {/* Quick Stats */}
-      <Row gutter={[8, 8]}>
-        <Col xs={12} sm={6}>
-          <Card 
-            hoverable 
-            onClick={() => handleNavigation('/employee/list')}
-            className="cursor-pointer mobile-card"
-            size="small"
-          >
+      {/* Entity Statistics - Separate Cards */}
+      <Row gutter={[20, 20]}>
+        <Col xs={24} sm={12} md={8} lg={4.8} xl={4.8}>
+          <Card size="small" className="mobile-card" style={{ height: "100%" }}>
+            <Spin spinning={entityLoading}>
             <Statistic
-              title="Employees"
-              value={stats.employees}
+                title="Total Customers"
+                value={entityStats.totalCustomers}
               prefix={<UserOutlined />}
-              valueStyle={{ color: '#1890ff', fontSize: '18px' }}
+                valueStyle={{ color: "#1890ff", fontSize: "20px" }}
             />
+            </Spin>
           </Card>
         </Col>
-        <Col xs={12} sm={6}>
-          <Card 
-            hoverable 
-            onClick={() => handleNavigation('/vehicle')}
-            className="cursor-pointer mobile-card"
-            size="small"
-          >
+        <Col xs={24} sm={12} md={8} lg={4.8} xl={4.8}>
+          <Card size="small" className="mobile-card" style={{ height: "100%" }}>
+            <Spin spinning={entityLoading}>
             <Statistic
-              title="Machines"
-              value={stats.vehicles}
-              prefix={<CarOutlined />}
-              valueStyle={{ color: '#52c41a', fontSize: '18px' }}
-            />
+                title="Total Suppliers"
+                value={entityStats.totalSuppliers}
+                prefix={<ShopOutlined />}
+                valueStyle={{ color: "#52c41a", fontSize: "20px" }}
+              />
+            </Spin>
           </Card>
         </Col>
-        <Col xs={12} sm={6}>
-          <Card 
-            hoverable 
-            onClick={() => handleNavigation('/site')}
-            className="cursor-pointer mobile-card"
-            size="small"
-          >
+        <Col xs={24} sm={12} md={8} lg={4.8} xl={4.8}>
+          <Card size="small" className="mobile-card" style={{ height: "100%" }}>
+            <Spin spinning={entityLoading}>
             <Statistic
-              title="Sites"
-              value={stats.sites}
+                title="Total Branches"
+                value={entityStats.totalBranches}
               prefix={<HomeOutlined />}
-              valueStyle={{ color: '#722ed1', fontSize: '18px' }}
-            />
+                valueStyle={{ color: "#722ed1", fontSize: "20px" }}
+              />
+            </Spin>
           </Card>
         </Col>
-        <Col xs={12} sm={6}>
-          <Card 
-            hoverable 
-            onClick={() => handleNavigation('/supplier')}
-            className="cursor-pointer mobile-card"
-            size="small"
-          >
+        <Col xs={24} sm={12} md={8} lg={4.8} xl={4.8}>
+          <Card size="small" className="mobile-card" style={{ height: "100%" }}>
+            <Spin spinning={entityLoading}>
+              <Statistic
+                title="Pending Invoices"
+                value={entityStats.pendingInvoices}
+                prefix={<FileTextOutlined />}
+                valueStyle={{ color: "#fa8c16", fontSize: "20px" }}
+              />
+            </Spin>
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={8} lg={4.8} xl={4.8}>
+          <Card size="small" className="mobile-card" style={{ height: "100%" }}>
+            <Spin spinning={entityLoading}>
             <Statistic
-              title="Suppliers"
-              value={stats.suppliers}
-              prefix={<ShopOutlined />}
-              valueStyle={{ color: '#fa8c16', fontSize: '18px' }}
-            />
+                title="Total Dues"
+                value={entityStats.totalDues}
+                prefix={<CreditCardOutlined />}
+                valueStyle={{ color: "#ff4d4f", fontSize: "20px" }}
+                formatter={(value) => formatCurrency(value)}
+              />
+            </Spin>
           </Card>
         </Col>
       </Row>
 
-      {/* Today's Attendance */}
-      <Card title="Today's Attendance" extra={<Button size="small" onClick={() => handleNavigation('/employee/attendance')}>View All</Button>}>
-        <Table
-          dataSource={todayAttendance}
-          pagination={false}
-          size="small"
-          scroll={{ x: 600 }}
-          columns={[
-            {
-              title: "Employee",
-              key: "employee",
-              render: (_, record) => (
-                <div>
-                  <Text strong>{record.employee?.name || 'Unknown'}</Text>
-                  <br />
-                  <Text type="secondary" className="text-sm">
-                    {record.employee?.empId || 'N/A'}
+      {/* Sales Graph and Financial Summary in Same Row */}
+      <Row gutter={[20, 20]}>
+        <Col xs={24} lg={16}>
+          <Card
+            title={`Sales Analytics - ${period.charAt(0).toUpperCase() + period.slice(1)}`}
+            extra={
+              <Text type="secondary">
+                {stats.startDate && stats.endDate
+                  ? `${dayjs(stats.startDate).format("DD/MM/YYYY")} - ${dayjs(
+                      stats.endDate
+                    ).format("DD/MM/YYYY")}`
+                  : ""}
                   </Text>
-                </div>
-              ),
-            },
-            {
-              title: "Site",
-              key: "site",
-              responsive: ['md'],
-              render: (_, record) => record.site?.siteName || 'Unknown',
-            },
-            // Removed Status column as requested
-            {
-              title: "Salary",
-              dataIndex: "salary",
-              key: "salary",
-              responsive: ['md'],
-              render: (salary) => salary ? `₹${salary.toLocaleString()}` : '-',
-            },
-          ]}
-        />
-        {todayAttendance.length === 0 && (
-          <div className="text-center text-gray-500 py-4">
-            No attendance records for today
+            }
+          >
+            <Spin spinning={loading}>
+              {chartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="dateLabel"
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                    />
+                    <YAxis />
+                    <Tooltip
+                      formatter={(value) => formatCurrency(value)}
+                      labelFormatter={(label) =>
+                        period === "today" ? `Time: ${label}` : `Date: ${label}`
+                      }
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="sales"
+                      stroke="#1890ff"
+                      strokeWidth={2}
+                      name="Sales"
+                      dot={{ r: 4 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="cost"
+                      stroke="#ff4d4f"
+                      strokeWidth={2}
+                      name="Cost"
+                      dot={{ r: 4 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="profit"
+                      stroke="#52c41a"
+                      strokeWidth={2}
+                      name="Profit"
+                      dot={{ r: 4 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-center text-gray-500 py-8">
+                  No sales data available for the selected period
           </div>
         )}
+            </Spin>
       </Card>
-
-      {/* Service Alerts Summary */}
-      {serviceAlerts.length > 0 && (
-        <Card title="Service Alerts" extra={<Button onClick={() => handleNavigation('/service-management')}>Manage Services</Button>}>
-          <div className="space-y-2">
-            {serviceAlerts.slice(0, 5).map((alert, index) => (
-              <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                <div className="flex items-center space-x-2">
-                  {alert.priority === 'high' ? (
-                    <ExclamationCircleOutlined className="text-red-500" />
-                  ) : (
-                    <ClockCircleOutlined className="text-orange-500" />
-                  )}
-                  <Text type={alert.priority === 'high' ? 'danger' : 'warning'}>
-                    {alert.message}
-                  </Text>
+        </Col>
+        <Col xs={24} lg={8}>
+          <Card 
+            title="Financial Summary" 
+            size="small"
+            style={{ height: "100%" }}
+            bodyStyle={{ padding: "20px" }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+              {/* Net Profit - Highlighted and Centered */}
+              <div style={{ 
+                textAlign: "center", 
+                padding: "20px 16px",
+                background: netProfit >= 0 
+                  ? "linear-gradient(135deg, rgba(82, 196, 26, 0.1) 0%, rgba(82, 196, 26, 0.05) 100%)" 
+                  : "linear-gradient(135deg, rgba(255, 77, 79, 0.1) 0%, rgba(255, 77, 79, 0.05) 100%)",
+                borderRadius: "8px",
+                border: `1px solid ${netProfit >= 0 ? "rgba(82, 196, 26, 0.3)" : "rgba(255, 77, 79, 0.3)"}`
+              }}>
+                <div style={{ 
+                  fontSize: "12px", 
+                  fontWeight: 600,
+                  color: "#8c8c8c",
+                  marginBottom: "10px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px"
+                }}>
+                  Net Profit
                 </div>
-                <Tag color={alert.priority === 'high' ? 'red' : 'orange'}>
-                  {alert.priority === 'high' ? 'URGENT' : 'SOON'}
-                </Tag>
+                <div style={{ 
+                  fontSize: "32px", 
+                  fontWeight: 700,
+                  color: netProfit >= 0 ? "#52c41a" : "#ff4d4f",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px"
+                }}>
+                  {netProfit >= 0 ? <RiseOutlined /> : <FallOutlined />}
+                  {formatCurrency(Math.abs(netProfit))}
+                </div>
               </div>
-            ))}
-            {serviceAlerts.length > 5 && (
-              <div className="text-center">
-                <Text type="secondary">
-                  ... and {serviceAlerts.length - 5} more alerts
-                </Text>
+
+              {/* Total Cost and Loss - Well Aligned */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                {/* Total Cost */}
+                <div style={{ 
+                  display: "flex", 
+                  justifyContent: "space-between", 
+                  alignItems: "center",
+                  padding: "14px 0",
+                  borderBottom: "1px solid #f0f0f0"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <DollarOutlined style={{ 
+                      fontSize: "20px", 
+                      color: "#faad14" 
+                    }} />
+                    <span style={{ 
+                      fontSize: "14px", 
+                      color: "#595959",
+                      fontWeight: 500
+                    }}>
+                      Total Cost
+                    </span>
+                  </div>
+                  <span style={{ 
+                    fontSize: "18px", 
+                    fontWeight: 600,
+                    color: "#faad14"
+                  }}>
+                    {formatCurrency(stats.totalCost)}
+                  </span>
+                </div>
+
+                {/* Loss */}
+                <div style={{ 
+                  display: "flex", 
+                  justifyContent: "space-between", 
+                  alignItems: "center",
+                  padding: "14px 0"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <FallOutlined style={{ 
+                      fontSize: "20px", 
+                      color: "#ff4d4f" 
+                    }} />
+                    <span style={{ 
+                      fontSize: "14px", 
+                      color: "#595959",
+                      fontWeight: 500
+                    }}>
+                      Loss
+                    </span>
+                </div>
+                  <span style={{ 
+                    fontSize: "18px", 
+                    fontWeight: 600,
+                    color: "#ff4d4f"
+                  }}>
+                    {formatCurrency(stats.loss)}
+                  </span>
               </div>
-            )}
+              </div>
           </div>
         </Card>
-      )}
+        </Col>
+      </Row>
+   
     </div>
   );
 };

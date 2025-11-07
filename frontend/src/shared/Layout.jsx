@@ -1,22 +1,29 @@
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
 import { MenuOutlined } from "@ant-design/icons";
-import vaLogo from "../assets/VA.png";
+import vaLogo from "../assets/billing.png";
 import lightLogo from "../assets/hi.jpg";
 import { getUsername, isTownAdmin } from "../service/auth";
 import { MdDashboard } from "react-icons/md";
-import { FaWpforms, FaShoppingCart, FaWarehouse, FaChartBar, FaTags, FaAddressBook, FaUsersCog, FaLayerGroup, FaUserFriends, FaRuler, FaCube, FaFileInvoiceDollar } from 'react-icons/fa';
+import { FaWpforms, FaShoppingCart, FaWarehouse, FaChartBar, FaTags, FaAddressBook, FaUsersCog, FaLayerGroup, FaUserFriends, FaRuler, FaCube, FaFileInvoiceDollar, FaFile } from 'react-icons/fa';
 import { FaShop } from "react-icons/fa6";
+import { FaCodeBranch } from "react-icons/fa";
 
 const navArray = [
   { icon: <MdDashboard />, label: "Dashboard", path: "/dashboard" },
   { icon: <FaShoppingCart />, label: "Purchase Order", path: "/purchase-order" },
-  { icon: <FaFileInvoiceDollar />, label: "Bill Management", path: "/bill" },
+  { icon: <FaFile />, label: "Quotation Management", path: "/quotation" },
+  { icon: <FaFileInvoiceDollar />, label: "Invoice Management", path: "/invoice" },
+  { icon: <FaFileInvoiceDollar />, label: "Accounts Management", path: "/accounts" },
   { icon: <FaWarehouse />, label: "Inventory Management", path: "/inventory-management" },
   {
     icon: <FaChartBar />,
     label: "Reports",
     children: [
+      { icon: <FaWpforms />, label: "Sales Report", path: "/reports/sales" },
+      { icon: <FaWpforms />, label: "Profit & Loss", path: "/reports/profit-loss" },
+      { icon: <FaWpforms />, label: "Accounts Receivable", path: "/reports/accounts-receivable" },
+      { icon: <FaWpforms />, label: "Payment Collection", path: "/reports/payment-collection" },
       { icon: <FaWpforms />, label: "Item Stock Report", path: "/reports/item-stock" },
     ],
   },
@@ -26,7 +33,8 @@ const navArray = [
   { icon: <FaRuler />, label: "Unit", path: "/unit" },
   { icon: <FaCube />, label: "Product", path: "/product" },
   { icon: <FaShop />, label: "Supplier", path: "/supplier" },
-  { icon: <FaAddressBook />, label: "Address", path: "/address" },
+  // { icon: <FaAddressBook />, label: "Address", path: "/address" },
+  { icon: <FaCodeBranch />, label: "Branch", path: "/branch" },
   { icon: <FaUsersCog />, label: "User Management", path: "/user-management", adminOnly: true },
 ];
 

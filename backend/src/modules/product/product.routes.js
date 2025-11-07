@@ -24,13 +24,13 @@ router.put(
   validate(updateProductSchema),
   productController.update
 );
+router.delete("/:id/hard", authorize("delete"), productController.hardDelete);
 router.delete(
   "/:id",
   authorize("delete"),
   validate(deleteProductSchema),
   productController.softDelete
 );
-router.delete("/:id/hard", authorize("delete"), productController.hardDelete);
 router.post("/:id/restore", authorize("update"), productController.restore);
 
 export default router;

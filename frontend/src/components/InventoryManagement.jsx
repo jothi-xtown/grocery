@@ -269,6 +269,7 @@ import {
 import { MdOutlineInventory2, MdInventory } from "react-icons/md";
 import { ReloadOutlined, ToolOutlined, DatabaseOutlined, InboxOutlined, DropboxOutlined } from "@ant-design/icons";
 import api from "../service/api";
+import { capitalizeTableText } from "../utils/textUtils";
 
 const { Title, Text } = Typography;
 
@@ -437,12 +438,12 @@ const InventoryManagement = () => {
       key: "productName",
       render: (text, record) => (
         <div>
-          <Text strong>{text}</Text>
+          <Text strong>{capitalizeTableText(text, "productName")}</Text>
           {record.brand?.brandName && (
             <>
               <br />
               <Text type="secondary" style={{ fontSize: "12px" }}>
-                Brand: {record.brand.brandName}
+                Brand: {capitalizeTableText(record.brand.brandName, "brandName")}
               </Text>
             </>
           )}
@@ -453,13 +454,13 @@ const InventoryManagement = () => {
       title: "Category",
       dataIndex: ["category", "categoryName"],
       key: "category",
-      render: (categoryName) => categoryName || "-",
+      render: (categoryName) => capitalizeTableText(categoryName, "categoryName") || "-",
     },
     {
       title: "Unit",
       dataIndex: ["unit", "unitName"],
       key: "unit",
-      render: (unitName) => unitName || "-",
+      render: (unitName) => capitalizeTableText(unitName, "unitName") || "-",
     },
     {
       title: "Stock Available",

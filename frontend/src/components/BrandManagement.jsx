@@ -18,6 +18,7 @@ import {
 } from "@ant-design/icons";
 import api from "../service/api";
 import { canEdit, canDelete, canCreate } from "../service/auth";
+import { capitalizeTableText } from "../utils/textUtils";
 
 const BrandManagement = () => {
   const [form] = Form.useForm();
@@ -182,7 +183,12 @@ const BrandManagement = () => {
 
   // Table columns
   const columns = [
-    { title: "Brand Name", dataIndex: "brandName", key: "brandName" },
+    { 
+      title: "Brand Name", 
+      dataIndex: "brandName", 
+      key: "brandName",
+      render: (name) => capitalizeTableText(name, "brandName")
+    },
     {
       title: "Status",
       dataIndex: "brandStatus",

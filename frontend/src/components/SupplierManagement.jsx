@@ -20,6 +20,7 @@ import {
 } from "@ant-design/icons";
 import api from "../service/api";
 import { canEdit, canDelete, canCreate } from "../service/auth";
+import { capitalizeTableText } from "../utils/textUtils";
 
 const SupplierManagement = () => {
   const [form] = Form.useForm();
@@ -184,6 +185,7 @@ const SupplierManagement = () => {
                 <th>GST/PAN Number</th>
                 <th>Phone</th>
                 <th>Email Id</th>
+                <th>Address</th>
                 <th>Advance Paid</th>
                 <th>Old Balance</th>
                 <th>Credit Limit</th>
@@ -206,6 +208,7 @@ const SupplierManagement = () => {
                   <td>${supplier.gstNumber || "-"}</td>
                   <td>${supplier.phone || "-"}</td>
                   <td>${supplier.email || "-"}</td>
+                  <td>${supplier.address || "-"}</td>
                   <td>₹${(parseFloat(supplier.advancePaid) || 0).toFixed(2)}</td>
                   <td>₹${(parseFloat(supplier.oldBalance) || 0).toFixed(2)}</td>
                   <td>₹${(parseFloat(supplier.creditLimit) || 0).toFixed(2)}</td>
@@ -232,13 +235,23 @@ const SupplierManagement = () => {
       key: "supplierName",
       render: (title) => (
         <div style={{ minWidth: 180, wordWrap: "break-word" }}>
-          {title}
+          {capitalizeTableText(title, "supplierName")}
         </div>
       ),
     },
     { title: "GST/PAN Number", dataIndex: "gstNumber", key: "gstNumber" },
     { title: "Phone", dataIndex: "phone", key: "phone" },
     { title: "Email Id", dataIndex: "email", key: "email" },
+    {
+      title: "Address",
+      dataIndex: "address",
+      key: "address",
+      render: (address) => (
+        <div style={{ maxWidth: 250, wordWrap: "break-word" }}>
+          {capitalizeTableText(address, "address") || "-"}
+        </div>
+      ),
+    },
     {
       title: "Advance Paid",
       dataIndex: "advancePaid",
@@ -408,20 +421,22 @@ const SupplierManagement = () => {
                 name="phone"
                 label="Phone"
                 rules={[
-                  { required: true, message: "Phone number is required" },
-                  { pattern: /^\d{10,11}$/, message: "Phone number must be exactly 10 digits" }
+                  {
+                    pattern: /^\d{10,11}$/,
+                    message: "Phone number must be 10 digits (mobile) or 11 digits (landline)"
+                  }
                 ]}
               >
-                <Input placeholder="Enter 10-digit phone number"
+                <Input placeholder="Optional (10 or 11 digits)"
                   maxLength={11}
                   onKeyPress={(e) => {
-                    if (!/[0-9]/.test(e.key)) {
+                    if (!/[0-9]/.test(e.key) && e.key !== "Backspace" && e.key !== "Delete" && e.key !== "Tab" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") {
                       e.preventDefault();
                     }
                   }}
                   onPaste={(e) => {
                     const pasteData = e.clipboardData.getData("Text");
-                    if (!/^\d+$/.test(pasteData)) {
+                    if (!/^\d*$/.test(pasteData)) {
                       e.preventDefault();
                     }
                   }}

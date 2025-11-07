@@ -7,8 +7,10 @@ import {
 } from "antd";
 import {
   FileTextOutlined,
-  BarChartOutlined,
-  PrinterOutlined,
+  DollarOutlined,
+  RiseOutlined,
+  UserOutlined,
+  WalletOutlined,
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 
@@ -19,25 +21,39 @@ const Reports = () => {
 
   const reportTypes = [
     {
+      title: "Sales Report",
+      description: "Daily/weekly/monthly sales with filters and detailed analysis",
+      icon: <DollarOutlined />,
+      path: "/reports/sales",
+      color: "#1890ff",
+    },
+    {
+      title: "Profit & Loss Report",
+      description: "Revenue vs cost analysis with profit margin calculations",
+      icon: <RiseOutlined />,
+      path: "/reports/profit-loss",
+      color: "#52c41a",
+    },
+    {
+      title: "Accounts Receivable Report",
+      description: "Customer dues and aging analysis (0-30, 31-60, 61-90, 90+ days)",
+      icon: <UserOutlined />,
+      path: "/reports/accounts-receivable",
+      color: "#ff4d4f",
+    },
+    {
+      title: "Payment Collection Report",
+      description: "Payment collection by mode (Cash, UPI, Card, Bank) and period",
+      icon: <WalletOutlined />,
+      path: "/reports/payment-collection",
+      color: "#fa8c16",
+    },
+    {
       title: "Item Stock Report",
       description: "Opening, Inward, Outward, and Balance report for all items",
       icon: <FileTextOutlined />,
       path: "/reports/item-stock",
-      color: "#1890ff",
-    },
-    {
-      title: "Employee Salary Report",
-      description: "Employee salary details and attendance-based calculations",
-      icon: <BarChartOutlined />,
-      path: "/employee/salary",
-      color: "#fa8c16",
-    },
-    {
-      title: "Service Report",
-      description: "Vehicle and compressor service history and schedules",
-      icon: <PrinterOutlined />,
-      path: "/reports/service",
-      color: "#eb2f96",
+      color: "#13c2c2",
     },
   ];
 
@@ -100,7 +116,7 @@ const Reports = () => {
       <Row gutter={[16, 16]} className="mt-8">
         <Col xs={24} sm={8}>
           <Card className="text-center">
-            <div className="text-3xl font-bold text-blue-600 mb-2">3</div>
+            <div className="text-3xl font-bold text-blue-600 mb-2">{reportTypes.length}</div>
             <Text type="secondary">Available Reports</Text>
           </Card>
         </Col>

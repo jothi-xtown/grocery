@@ -10,6 +10,7 @@ import {
   FilePdfOutlined,
 } from "@ant-design/icons";
 import api from "../service/api";
+import { capitalizeTableText } from "../utils/textUtils";
 
 const { Title, Text } = Typography;
 
@@ -18,46 +19,59 @@ const ItemStockReport = () => {
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState([]);
 
-  // Fetch items and generate comprehensive report
+  // Fetch stock data and generate comprehensive report
   const fetchItems = async () => {
     setLoading(true);
     try {
-      const [itemsRes, instancesRes] = await Promise.all([
-        api.get("/api/items?limit=1000"), // Fetch all items with high limit
-        api.get("/api/itemInstances?limit=5000") // Fetch all instances with high limit
-      ]);
+      const stockRes = await api.get("/api/stock?limit=1000"); // Fetch all stock with high limit
       
-      const items = itemsRes.data.data || [];
-      const instances = instancesRes.data.data || [];
-      setItems(items);
+      const stockData = stockRes.data.data || [];
       
-      // Auto-generate comprehensive report with current data
-      const reportData = items.map((item) => {
-        const itemInstances = instances.filter(instance => instance.itemId === item.id);
-        const fittedInstances = itemInstances.filter(instance => instance.status === 'fitted');
-        const inStockInstances = itemInstances.filter(instance => instance.status === 'in_stock');
+      // Map stock data to report format
+      const reportData = stockData.map((stock) => {
+        const product = stock.product || {};
+        const currentStock = parseFloat(stock.currentStock) || 0;
+        const purchasedQty = parseFloat(stock.purchasedQty) || 0;
+        const soldQty = parseFloat(stock.soldQty) || 0;
+        const unitPrice = product.purchasePrice || product.salesPrice || 0;
+        const totalValue = currentStock * unitPrice;
+        
+        // Calculate opening stock: currentStock - purchasedQty + soldQty
+        // If openingStock is explicitly set and not null, use it; otherwise calculate
+        let openingStock = stock.openingStock;
+        if (openingStock === null || openingStock === undefined || openingStock === 0) {
+          // Calculate opening stock from current stock and transactions
+          openingStock = currentStock - purchasedQty + soldQty;
+          // Ensure it's not negative
+          openingStock = Math.max(0, openingStock);
+        } else {
+          openingStock = parseFloat(openingStock) || 0;
+        }
         
         return {
-          id: item.id,
-          itemName: item.itemName,
-          partNumber: item.partNumber,
-          groupName: item.groupName,
-          units: item.units,
-          stock: item.stock || 0,
-          unitPrice: item.purchaseRate || 0,
-          totalValue: (item.stock || 0) * (item.purchaseRate || 0),
-          gst: item.gst || 0,
-          canBeFitted: item.canBeFitted || false,
-          totalInstances: itemInstances.length,
-          fittedInstances: fittedInstances.length,
-          inStockInstances: inStockInstances.length,
-          instances: itemInstances,
+          id: stock.id,
+          productId: stock.productId,
+          itemName: product.productName || "Unknown Product",
+          partNumber: product.barCode || "-",
+          groupName: product.category?.categoryName || "-",
+          units: product.unit?.unitName || "-",
+          stock: currentStock,
+          unitPrice: unitPrice,
+          totalValue: totalValue,
+          gst: product.hasGST ? (product.gstPercent || 0) : 0,
+          openingStock: openingStock,
+          purchasedQty: purchasedQty,
+          soldQty: soldQty,
+          location: stock.location || "-",
         };
       });
+      
       setReportData(reportData);
+      setItems(reportData); // Keep for compatibility
     } catch (err) {
-      console.error("Error fetching items", err);
-      message.error("Error fetching items");
+      console.error("Error fetching stock data", err);
+      message.error(err?.response?.data?.message || "Error fetching stock data");
+      setReportData([]);
     } finally {
       setLoading(false);
     }
@@ -94,18 +108,18 @@ const ItemStockReport = () => {
           <table>
             <thead>
               <tr>
-                <th>Item Name</th>
-                <th>Part Number</th>
-                <th>Group</th>
-                <th>Units</th>
-                <th>Stock Available</th>
+                <th>Product Name</th>
+                <th>Barcode</th>
+                <th>Category</th>
+                <th>Unit</th>
+                <th>Current Stock</th>
+                <th>Opening Stock</th>
+                <th>Purchased Qty</th>
+                <th>Sold Qty</th>
                 <th>Unit Price</th>
                 <th>GST %</th>
-                <th>Can Be Fitted</th>
-                <th>Instances</th>
-                <th>Fitted</th>
-                <th>In Stock</th>
                 <th>Total Value</th>
+                <th>Location</th>
               </tr>
             </thead>
             <tbody>
@@ -116,53 +130,24 @@ const ItemStockReport = () => {
                   <td>${item.groupName || '-'}</td>
                   <td>${item.units}</td>
                   <td style="color: ${item.stock > 0 ? 'green' : 'red'}; font-weight: bold;">${item.stock}</td>
-                  <td>₹${item.unitPrice}</td>
+                  <td>${item.openingStock || 0}</td>
+                  <td>${item.purchasedQty || 0}</td>
+                  <td>${item.soldQty || 0}</td>
+                  <td>₹${item.unitPrice.toFixed(2)}</td>
                   <td>${item.gst}%</td>
-                  <td>${item.canBeFitted ? 'Yes' : 'No'}</td>
-                  <td>${item.totalInstances}</td>
-                  <td style="color: ${item.fittedInstances > 0 ? 'blue' : 'gray'}; font-weight: bold;">${item.fittedInstances}</td>
-                  <td style="color: ${item.inStockInstances > 0 ? 'green' : 'gray'}; font-weight: bold;">${item.inStockInstances}</td>
-                  <td>₹${item.totalValue}</td>
+                  <td>₹${item.totalValue.toFixed(2)}</td>
+                  <td>${item.location || '-'}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
           
-          <h3>Detailed Item Instances</h3>
-          ${reportData.filter(item => item.canBeFitted && item.instances.length > 0).map(item => `
-            <div class="item-detail">
-              <h4>${item.itemName} (${item.partNumber || 'No Part Number'})</h4>
-              <p><strong>Total Instances:</strong> ${item.totalInstances} | <strong>Fitted:</strong> ${item.fittedInstances} | <strong>In Stock:</strong> ${item.inStockInstances}</p>
-              ${item.instances.length > 0 ? `
-                <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
-                  <thead>
-                    <tr style="background-color: #f5f5f5;">
-                      <th style="border: 1px solid #ddd; padding: 8px;">Instance Number</th>
-                      <th style="border: 1px solid #ddd; padding: 8px;">Status</th>
-                      <th style="border: 1px solid #ddd; padding: 8px;">Current RPM</th>
-                      <th style="border: 1px solid #ddd; padding: 8px;">Next Service RPM</th>
-                      <th style="border: 1px solid #ddd; padding: 8px;">Fitted To</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${item.instances.map(instance => `
-                      <tr>
-                        <td style="border: 1px solid #ddd; padding: 8px;">${instance.instanceNumber}</td>
-                        <td style="border: 1px solid #ddd; padding: 8px; color: ${instance.status === 'fitted' ? 'blue' : 'green'}; font-weight: bold;">${instance.status}</td>
-                        <td style="border: 1px solid #ddd; padding: 8px;">${instance.currentRPM || 0}</td>
-                        <td style="border: 1px solid #ddd; padding: 8px;">${instance.nextServiceRPM || 'Not set'}</td>
-                        <td style="border: 1px solid #ddd; padding: 8px;">${instance.fittedToVehicle ? instance.fittedToVehicle.vehicleNumber || 'Unknown' : '-'}</td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              ` : ''}
-            </div>
-          `).join('')}
-          
           <div class="summary">
-            <div class="total">Total Stock Value: ₹${reportData.reduce((sum, item) => sum + item.totalValue, 0)}</div>
-            <p>Total Items: ${reportData.length}</p>
+            <div class="total">Total Stock Value: ₹${reportData.reduce((sum, item) => sum + item.totalValue, 0).toFixed(2)}</div>
+            <p><strong>Total Products:</strong> ${reportData.length}</p>
+            <p><strong>Total Current Stock:</strong> ${reportData.reduce((sum, item) => sum + item.stock, 0)}</p>
+            <p><strong>Total Purchased:</strong> ${reportData.reduce((sum, item) => sum + (item.purchasedQty || 0), 0)}</p>
+            <p><strong>Total Sold:</strong> ${reportData.reduce((sum, item) => sum + (item.soldQty || 0), 0)}</p>
           </div>
         </body>
       </html>
@@ -174,103 +159,108 @@ const ItemStockReport = () => {
   // Table columns
   const columns = [
     {
-      title: "Item Name",
+      title: "Product Name",
       dataIndex: "itemName",
       key: "itemName",
+      width: 200,
+      align: "left",
+      render: (text) => capitalizeTableText(text, "itemName"),
     },
     {
-      title: "Part Number",
+      title: "Barcode",
       dataIndex: "partNumber",
       key: "partNumber",
+      width: 150,
+      align: "left",
       render: (text) => text || "-",
     },
     {
-      title: "Group",
+      title: "Category",
       dataIndex: "groupName",
       key: "groupName",
-      render: (text) => text || "-",
+      width: 150,
+      align: "left",
+      render: (text) => capitalizeTableText(text, "groupName") || "-",
     },
     {
-      title: "Units",
+      title: "Unit",
       dataIndex: "units",
       key: "units",
+      width: 100,
+      align: "center",
+      render: (text) => capitalizeTableText(text, "units") || "-",
     },
     {
-      title: "Stock Available",
+      title: "Current Stock",
       dataIndex: "stock",
       key: "stock",
+      width: 130,
+      align: "right",
       render: (value) => (
         <span style={{ 
           color: value > 0 ? '#52c41a' : '#ff4d4f',
           fontWeight: 'bold',
           fontSize: '16px'
         }}>
-          {value}
+          {value || 0}
         </span>
       ),
+    },
+    {
+      title: "Opening Stock",
+      dataIndex: "openingStock",
+      key: "openingStock",
+      width: 130,
+      align: "right",
+      render: (value) => value || 0,
+    },
+    {
+      title: "Purchased Qty",
+      dataIndex: "purchasedQty",
+      key: "purchasedQty",
+      width: 130,
+      align: "right",
+      render: (value) => value || 0,
+    },
+    {
+      title: "Sold Qty",
+      dataIndex: "soldQty",
+      key: "soldQty",
+      width: 130,
+      align: "right",
+      render: (value) => value || 0,
     },
     {
       title: "Unit Price",
       dataIndex: "unitPrice",
       key: "unitPrice",
-      render: (price) => `₹${price}`,
+      width: 120,
+      align: "right",
+      render: (price) => `₹${(price || 0).toFixed(2)}`,
     },
     {
       title: "GST %",
       dataIndex: "gst",
       key: "gst",
-      render: (gst) => `${gst}%`,
-    },
-    {
-      title: "Can Be Fitted",
-      dataIndex: "canBeFitted",
-      key: "canBeFitted",
-      render: (value) => (
-        <span style={{ 
-          color: value ? '#1890ff' : '#8c8c8c',
-          fontWeight: 'bold'
-        }}>
-          {value ? 'Yes' : 'No'}
-        </span>
-      ),
-    },
-    {
-      title: "Total Instances",
-      dataIndex: "totalInstances",
-      key: "totalInstances",
-      render: (value) => value || 0,
-    },
-    {
-      title: "Fitted",
-      dataIndex: "fittedInstances",
-      key: "fittedInstances",
-      render: (value) => (
-        <span style={{ 
-          color: value > 0 ? '#1890ff' : '#8c8c8c',
-          fontWeight: 'bold'
-        }}>
-          {value || 0}
-        </span>
-      ),
-    },
-    {
-      title: "In Stock",
-      dataIndex: "inStockInstances",
-      key: "inStockInstances",
-      render: (value) => (
-        <span style={{ 
-          color: value > 0 ? '#52c41a' : '#8c8c8c',
-          fontWeight: 'bold'
-        }}>
-          {value || 0}
-        </span>
-      ),
+      width: 100,
+      align: "right",
+      render: (gst) => `${gst || 0}%`,
     },
     {
       title: "Total Value",
       dataIndex: "totalValue",
       key: "totalValue",
-      render: (value) => `₹${value}`,
+      width: 130,
+      align: "right",
+      render: (value) => `₹${(value || 0).toFixed(2)}`,
+    },
+    {
+      title: "Location",
+      dataIndex: "location",
+      key: "location",
+      width: 120,
+      align: "left",
+      render: (text) => text || "-",
     },
   ];
 

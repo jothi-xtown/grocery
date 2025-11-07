@@ -4,7 +4,7 @@ export const createPurchaseOrderSchema = z.object({
   orderNumber: z.string().optional(), // Auto-generated if not provided
   orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Order date must be in YYYY-MM-DD format"),
   supplierId: z.string().uuid("Invalid supplier ID"),
-  addressId: z.string().uuid("Invalid address ID"),
+  addressId: z.string().uuid("Invalid address ID").optional().nullable(),
   shippingAddressId: z.string().uuid("Invalid shipping address ID").optional().nullable(),
   gstInclude: z.boolean().optional().default(false),
   gstPercent: z.number().min(0).max(100).optional().nullable(),

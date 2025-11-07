@@ -46,9 +46,13 @@ const billItemSchema = z.object({
 // ✅ Create Bill Schema
 export const createBillSchema = z.object({
   type: z.enum(["quotation", "invoice"]),
-  customerId: z.string().uuid(),
+  customerId: z.string().uuid().optional().nullable(),
+  branchId: z.string().uuid().optional().nullable(),
   items: z.array(billItemSchema).min(1),
   remarks: z.string().max(255).optional(),
+}).refine((data) => data.customerId || data.branchId, {
+  message: "Either customer or branch must be provided",
+  path: ["customerId"],
 });
 
 // ✅ Update Bill Schema
@@ -59,8 +63,7 @@ export const deleteBillSchema = z.object({});
 
 // ✅ Payment Schema
 export const paymentSchema = z.object({
-  billId: z.string().uuid(),
-  paymentMode: z.string().min(1),
-  amountPaid: z.number().positive(),
-  transactionId: z.string().optional(),
+  paymentMode: z.string().min(1, "Payment mode is required"),
+  amountPaid: z.number().positive("Amount must be greater than 0"),
+  transactionId: z.string().optional().nullable(),
 });

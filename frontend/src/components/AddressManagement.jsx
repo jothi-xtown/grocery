@@ -290,23 +290,24 @@ const AddressManagement = () => {
                 <Form.Item
                   name="phone"
                   label="Phone Number"
-
                   rules={[
-                    { required: true, message: "Phone number is required" },
-                    { pattern: /^\d{10}$/, message: "Phone number must be exactly 10 digits" }
+                    {
+                      pattern: /^\d{10,11}$/,
+                      message: "Phone number must be 10 digits (mobile) or 11 digits (landline)"
+                    }
                   ]}
                 >
                   <Input
-                    placeholder="Enter 10-digit phone number"
-                    maxLength={10}
+                    placeholder="Optional (10 or 11 digits)"
+                    maxLength={11}
                     onKeyPress={(e) => {
-                      if (!/[0-9]/.test(e.key)) {
+                      if (!/[0-9]/.test(e.key) && e.key !== "Backspace" && e.key !== "Delete" && e.key !== "Tab" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") {
                         e.preventDefault(); 
                       }
                     }}
                     onPaste={(e) => {
                       const pasteData = e.clipboardData.getData("Text");
-                      if (!/^\d+$/.test(pasteData)) {
+                      if (!/^\d*$/.test(pasteData)) {
                         e.preventDefault(); 
                       }
                     }}
@@ -318,13 +319,19 @@ const AddressManagement = () => {
                   name="email"
                   label="Email Address"
                   rules={[
-                    { required: true, message: "Email address is required" },
-                    { type: "email", message: "Please enter a valid email address" },
+                    {
+                      validator: (_, value) => {
+                        if (!value || value.trim() === '') return Promise.resolve();
+                        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+                          ? Promise.resolve()
+                          : Promise.reject("Please enter a valid email address");
+                      },
+                    },
                     { max: 255, message: "Email must be less than 255 characters" }
                   ]}
                 >
                   <Input
-                    placeholder="Enter email address"
+                    placeholder="Optional"
                     type="email"
                   />
                 </Form.Item>
